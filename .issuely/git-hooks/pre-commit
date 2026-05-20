@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Issuely pre-commit 保护：禁止把 workspace/ 任何文件提交进框架仓库。
+# 即使有人 git add -f，本 hook 也会拦下。
+
+set -e
+
+BAD=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^workspace/' || true)
+
+if [ -n "$BAD" ]; then
+  echo "[pre-commit] 拒绝提交：workspace/ 下的文件不允许进入框架仓库。" >&2
+  echo "  问题文件：" >&2
+  echo "$BAD" | sed 's/^/    /' >&2
+  echo >&2
+  echo "  解决方法：" >&2
+  echo "    git rm --cached workspace/...  # 从暂存区移除" >&2
+  echo "    或 git reset HEAD workspace/   # 撤销暂存" >&2
+  exit 1
+fi

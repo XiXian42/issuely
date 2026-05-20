@@ -11,6 +11,12 @@
 ./start.sh -h        # 帮助
 ```
 
+初次克隆后建议运行一次以安装 git hooks（防止误提交 `workspace/`）：
+
+```bash
+./.issuely/bin/install_hooks.sh
+```
+
 第一次跑会问你 4 个问题（项目名、技术栈、规划深度 A/B、需求描述），然后 Planner agent
 把需求拆成 `workspace/docs/` 与 `workspace/issues/`，dev/review 双 agent 接力直到
 `workspace/dev.done` 与 `workspace/review.done` 双立。
@@ -49,6 +55,18 @@ ln -s ~/issuely-framework ~/proj-B/.issuely
 ```bash
 ISSUELY_META_DIR=~/issuely-framework ./start.sh
 ```
+
+## 仓库边界
+
+本仓库只包含 **框架代码**（`start.sh` + `.issuely/`）。以下东西永远不进入本仓库历史：
+
+- `workspace/` — 用户产物（是运行产出物，不是框架的一部分）
+- `config.json` — 项目实例配置（含用户需求描述）
+- `.issuely/logs/` — 运行日志
+- `*.done` — 完成标志
+
+上述路径均在 `.gitignore`。另外 pre-commit hook 会主动拦截 `workspace/`
+路径的任何提交（包括 `git add -f`），避免 agent 在开发过程中误伤框架仓库。
 
 ## 配置 (`config.json`)
 
