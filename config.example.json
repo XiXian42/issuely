@@ -1,0 +1,13 @@
+{
+  "projectName": "my-project",
+  "workspace": "workspace",
+  "language": "JavaScript (Node.js)",
+  "originalRequirement": "",
+  "models": {
+    "dev": "openai-codex/gpt-5.5",
+    "review": "openrouter/anthropic/claude-sonnet-4.6",
+    "planner": null
+  },
+  "tools": "",
+  "piTrace": 1
+}
