@@ -40,8 +40,8 @@ deadlock_exit() {
   echo " 你可以："
   echo "   1) 查看最近状态：tail -n 30 \"$STATUS_PATH\""
   echo "   2) 看是否有 blocked：grep blocked \"$STATUS_PATH\" || true"
-  echo "   3) 续跑（不会丢数据）：./start.sh -c"
-  echo "   4) 修正 issue 后再续跑：编辑 \$ISSUES_DIR/NNN-*.md 后 ./start.sh -c"
+  echo "   3) 续跑（不会丢数据）：./start.sh dev"
+  echo "   4) 修正 issue 后再续跑：编辑 \$ISSUES_DIR/NNN-*.md 后 ./start.sh dev"
   echo "=========================================================="
   exit 1
 }

@@ -306,50 +306,49 @@ v="$(node "$META_SRC/bin/status_manager.js" validate --workspace-dir "$PROJ_E2E/
 echo "$v" | grep -q '"ok": true' && ok "validate ok after pipeline" || { ng "validate failed: $v"; }
 
 # ─────────────────────────────────────────────────────────────────────────
-# 5. start.sh -c 续跑：删掉 done 标志后再跑应该能完成
+# 5. dev 模式（./start.sh dev 与别名 -c）：删 done 后再跑能重立
 # ─────────────────────────────────────────────────────────────────────────
-note "5. start.sh -c continue mode"
+run_dev_subcmd_test() {
+  local subcmd="$1" out="$2" label="$3"
+  : > "$FAKE_LOG"
+  rm -f "$PROJ_E2E/workspace/review.done"
+  ISSUELY_FAKE_LOG="$FAKE_LOG" \
+  ISSUELY_PROJECT_DIR="$PROJ_E2E" \
+  PATH="$FAKE_BIN:$PATH" \
+  "$REPO_ROOT/start.sh" "$subcmd" >"$out" 2>&1
+  local rc=$?
+  assert_eq "$rc" "0" "start.sh $subcmd exits 0 ($label)"
+  assert_file_exists "$PROJ_E2E/workspace/review.done"
+  if grep -q "启动 run_while" "$out" \
+     && ! grep -q "请告诉 Issuely\|一句话需求" "$out"; then
+    ok "$label skips intake"
+  else
+    ng "$label unexpected output"
+    tail -n 20 "$out"
+  fi
+}
 
-# 模拟中断：删 review.done，让续跑能重立
-rm -f "$PROJ_E2E/workspace/review.done"
-
-# 先得给 PROJ_E2E 一个 start.sh (它本身没有；用框架里的并通过 ISSUELY_PROJECT_DIR 导)
-# 直接调 start.sh -c (用 expect-less 方式)
-: > "$FAKE_LOG"
-ISSUELY_FAKE_LOG="$FAKE_LOG" \
-ISSUELY_PROJECT_DIR="$PROJ_E2E" \
-PATH="$FAKE_BIN:$PATH" \
-"$REPO_ROOT/start.sh" -c >"$TMP_ROOT/cont.out" 2>&1
-rc=$?
-assert_eq "$rc" "0" "start.sh -c exits 0 after re-establishing review.done"
-assert_file_exists "$PROJ_E2E/workspace/review.done"
-
-# 续跑模式应跳过规划阶段：日志中应出现 "启动 run_while"，不出现 "请告诉 Issuely"
-if grep -q "启动 run_while" "$TMP_ROOT/cont.out" \
-   && ! grep -q "请告诉 Issuely" "$TMP_ROOT/cont.out"; then
-  ok "continue mode skips intake"
-else
-  ng "continue mode unexpected output"
-  tail -n 20 "$TMP_ROOT/cont.out"
-fi
+note "5. start.sh dev (and -c alias) skip intake"
+run_dev_subcmd_test "dev" "$TMP_ROOT/dev.out" "start.sh dev"
+run_dev_subcmd_test "-c"  "$TMP_ROOT/c.out"   "start.sh -c"
 
 # ─────────────────────────────────────────────────────────────────────────
-# 6. start.sh -c 在没有 issues/ 时应明确报错
+# 6. start.sh dev 在没有 issues/ 时应明确报错
 # ─────────────────────────────────────────────────────────────────────────
-note "6. start.sh -c without issues/"
+note "6. start.sh dev without issues/"
 PROJ_EMPTY="$TMP_ROOT/proj-empty"
 mkdir -p "$PROJ_EMPTY"
 ln -s "$META_SRC" "$PROJ_EMPTY/.issuely"
 echo '{"workspace":"workspace"}' > "$PROJ_EMPTY/config.json"
 
 set +e
-out="$(ISSUELY_PROJECT_DIR="$PROJ_EMPTY" "$REPO_ROOT/start.sh" -c 2>&1)"
+out="$(ISSUELY_PROJECT_DIR="$PROJ_EMPTY" "$REPO_ROOT/start.sh" dev 2>&1)"
 rc=$?
 set -e
 if [ "$rc" -ne 0 ] && echo "$out" | grep -q "issues/"; then
-  ok "start.sh -c errors clearly without issues/"
+  ok "start.sh dev errors clearly without issues/"
 else
-  ng "start.sh -c should error without issues/ (rc=$rc, out=$out)"
+  ng "start.sh dev should error without issues/ (rc=$rc, out=$out)"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────

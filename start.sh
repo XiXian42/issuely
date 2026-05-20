@@ -11,7 +11,7 @@ set -eo pipefail
 #
 # 用法：
 #   ./start.sh           交互模式：收集需求 → 规划 → 自动开发与审查
-#   ./start.sh -c        续跑模式：跳过规划，直接进入 run_while
+#   ./start.sh dev       开发模式：跳过规划，直接进入 run_while
 #   ./start.sh -h        帮助
 
 # ── 项目根 / 框架目录解析 ────────────────────────────────────────
@@ -31,18 +31,29 @@ ISSUELY_META_DIR="$(cd "$ISSUELY_META_DIR" && pwd)"
 export ISSUELY_META_DIR
 
 # 解析参数
-MODE="interactive"
+#   ./start.sh         规划模式：收集需求 → planner 多轮 → 落盘 docs/ + issues/，然后退出
+#   ./start.sh dev     开发模式：跳过规划，直接跑 dev/review 双 agent (run_while)
+#   ./start.sh -c      同 dev (兼容旧名)
+#   ./start.sh -h      帮助
+MODE="plan"
 while [ $# -gt 0 ]; do
   case "$1" in
-    -c|--continue) MODE="continue" ;;
-    -h|--help)
+    dev|run|develop)   MODE="dev" ;;
+    -c|--continue)     MODE="dev" ;;
+    -h|--help|help)
       cat <<EOF
 Issuely — 全程软件工程 Agent
 
 Usage:
-  ./start.sh           交互模式：收集需求 → 生成 docs/ + issues/ → 自动开发与审查
-  ./start.sh -c        续跑模式：跳过规划，直接重启 run_while
+  ./start.sh           规划：收集需求 → planner 多轮对话 → 落盘 docs/ + issues/ → 退出
+  ./start.sh dev       开发：跳过规划，直接启动 dev/review 双 agent 流水线
+  ./start.sh -c        同 dev (兼容旧名)
   ./start.sh -h        显示此帮助
+
+典型用法：
+  ./start.sh           # 第一次：先把需求聊清楚，落盘
+  ./start.sh dev       # 然后：让 agent 把项目跑出来
+  ./start.sh dev       # 中断后：再跑一次即可续跑
 
 Project layout:
   config.json          项目配置（单一事实源）
@@ -50,7 +61,7 @@ Project layout:
   workspace/issues/    有序任务包
   workspace/status.md  进度状态机（请勿手改）
   workspace/memo.md    项目记忆
-  workspace/logs/      运行日志（续跑时自动产生）
+  workspace/logs/      运行日志
 
 Env overrides:
   ISSUELY_PROJECT_DIR  项目根（默认：start.sh 所在目录）
@@ -85,7 +96,7 @@ run_while_with_log() {
   ts="$(date +%Y%m%d-%H%M%S)"
   log="$LOG_DIR/run-$ts.log"
   echo "[Issuely] 日志：$log"
-  echo "[Issuely] 启动 run_while …（Ctrl+C 可中断；中断后用 ./start.sh -c 续跑）"
+  echo "[Issuely] 启动 run_while …（Ctrl+C 可中断；中断后重跑 ./start.sh dev 即可续跑）"
   echo
   set +e
   "$ISSUELY_META_DIR/bin/run_while.sh" 2>&1 | tee "$log"
@@ -99,7 +110,7 @@ run_while_with_log() {
     echo " 你可以："
     echo "   1) 查看日志末尾：tail -n 80 \"$log\""
     echo "   2) 查看当前状态：cat \"$STATUS_PATH\""
-    echo "   3) 续跑（不会丢数据）：./start.sh -c"
+    echo "   3) 续跑（不会丢数据）：./start.sh dev"
     echo "   4) 重新规划（会清空 workspace/）：./start.sh"
     echo "=========================================================="
   fi
@@ -107,11 +118,11 @@ run_while_with_log() {
 }
 
 # ─────────────────────────────────────────────────────────────
-# 续跑模式
+# 开发模式 (./start.sh dev / -c)：跳过规划，直接跑 run_while
 # ─────────────────────────────────────────────────────────────
-if [ "$MODE" = "continue" ]; then
+if [ "$MODE" = "dev" ]; then
   if [ ! -d "$ISSUES_DIR" ] || [ -z "$(ls -A "$ISSUES_DIR" 2>/dev/null)" ]; then
-    echo "[Issuely] 续跑模式需要已有规划产物，但未发现 issues/。请先运行 ./start.sh 规划。" >&2
+    echo "[Issuely] 开发模式需要已有 issues/ 产物。请先运行 ./start.sh 规划。" >&2
     exit 1
   fi
   run_while_with_log
@@ -134,35 +145,39 @@ HAS_REVIEW_DONE=0; [ -f "$REVIEW_DONE" ] && HAS_REVIEW_DONE=1
 HAS_ISSUES=0;      [ -d "$ISSUES_DIR" ] && [ -n "$(ls -A "$ISSUES_DIR" 2>/dev/null)" ] && HAS_ISSUES=1
 HAS_STATUS=0;      [ -f "$STATUS_PATH" ] && HAS_STATUS=1
 
+# 已存在的项目状态如何处理：
+#   0 = 全新项目，进入规划
+#   1 = 用户选择重新规划，清空 workspace/ 后进入规划
+#   3 = 已有进行中或已完成的项目；提示用户运行 ./start.sh dev / 重新规划，然后退出
 decide_action() {
   if [ "$HAS_DEV_DONE" = 1 ] && [ "$HAS_REVIEW_DONE" = 1 ]; then
     echo "[Info] 上一轮已完整交付（dev.done + review.done 均存在）。"
     echo "  [r] 重新规划（清空 workspace/）"
-    echo "  [q] 退出，仅查看产物"
+    echo "  [q] 退出（推荐，仅查看产物）"
     read -p "选择 (r/q) [默认 q]: " ANS
     case "${ANS:-q}" in
       r|R) return 1 ;;
-      *)   exit 0 ;;
+      *)   return 3 ;;
     esac
   elif [ "$HAS_STATUS" = 1 ]; then
     echo "[Info] 检测到进行中的项目（status.md 存在）。"
-    echo "  [c] 续跑（推荐）"
+    echo "  [d] 立即跑开发（执行 ./start.sh dev）（推荐）"
     echo "  [r] 重新规划（清空 workspace/）"
     echo "  [q] 退出"
-    read -p "选择 (c/r/q) [默认 c]: " ANS
-    case "${ANS:-c}" in
-      c|C) return 2 ;;
+    read -p "选择 (d/r/q) [默认 d]: " ANS
+    case "${ANS:-d}" in
+      d|D) return 3 ;;
       r|R) return 1 ;;
       *)   exit 0 ;;
     esac
   elif [ "$HAS_ISSUES" = 1 ]; then
     echo "[Info] 已生成 issues/，但尚未开始开发。"
-    echo "  [c] 直接开始开发（推荐）"
+    echo "  [d] 立即跑开发（执行 ./start.sh dev）（推荐）"
     echo "  [r] 重新规划（清空 workspace/）"
     echo "  [q] 退出"
-    read -p "选择 (c/r/q) [默认 c]: " ANS
-    case "${ANS:-c}" in
-      c|C) return 2 ;;
+    read -p "选择 (d/r/q) [默认 d]: " ANS
+    case "${ANS:-d}" in
+      d|D) return 3 ;;
       r|R) return 1 ;;
       *)   exit 0 ;;
     esac
@@ -175,7 +190,11 @@ decide_action
 DECISION=$?
 set -e
 
-if [ "$DECISION" = 2 ]; then
+if [ "$DECISION" = 3 ]; then
+  if [ ! -d "$ISSUES_DIR" ] || [ -z "$(ls -A "$ISSUES_DIR" 2>/dev/null)" ]; then
+    echo "[Issuely] 没有 issues/，无法直接开发。请先运行 ./start.sh 进行规划。" >&2
+    exit 1
+  fi
   run_while_with_log
   exit $?
 fi
@@ -259,24 +278,20 @@ if ! node "$ISSUELY_META_DIR/bin/status_manager.js" validate \
   exit 1
 fi
 
+ISSUE_COUNT=$(ls -1 "$ISSUES_DIR" 2>/dev/null | grep -cE '^[0-9]{3}-.*\.md$' || echo 0)
+
 echo
-echo "🚀 [Issuely] 规划落盘成功！正在启动 dev / review 双 Agent 流水线…"
-echo "----------------------------------------------------------"
-
-run_while_with_log
-RC=$?
-
-if [ "$RC" -eq 0 ]; then
-  echo
-  echo "=========================================================="
-  echo " 🎉 Issuely 自动化开发与审查工程已顺利竣工！"
-  echo "=========================================================="
-  echo "   产物源码：    $WORKSPACE/"
-  echo "   设计文档：    $DOCS_DIR/"
-  echo "   任务包：      $ISSUES_DIR/"
-  echo "   进度记录：    $STATUS_PATH"
-  echo "   项目记忆：    $MEMO_PATH"
-  echo "=========================================================="
-fi
-
-exit $RC
+echo "=========================================================="
+echo " ✅ 规划落盘成功"
+echo "=========================================================="
+echo "   设计文档：  $DOCS_DIR/"
+echo "   任务包：    $ISSUES_DIR/  (共 $ISSUE_COUNT 个 issue)"
+echo
+echo " 下一步："
+echo "   1) 翻翻 $ISSUES_DIR/ 看看 issue 是否符合预期"
+echo "   2) 满意了就跑：./start.sh dev"
+echo "      （这会启动 dev/review 双 agent 自动开发与审查；"
+echo "        中断后再次执行 ./start.sh dev 即可续跑，不会丢数据）"
+echo "   3) 若需重头规划：./start.sh 然后选择 [r] 重新规划"
+echo "=========================================================="
+exit 0

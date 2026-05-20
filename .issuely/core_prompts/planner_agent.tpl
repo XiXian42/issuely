@@ -98,7 +98,17 @@ node <ISSUELY_META_DIR>/lib/config.cjs write \
 具体的 lib/config.cjs 路径与项目根来自 INITIAL_MESSAGE 的"环境上下文"。
 不要 hardcode，按用户消息里的 ISSUELY_META_DIR / ISSUELY_PROJECT_DIR 拼。
 
-落盘完成后，简短回报：写了多少个文件、issue 数量，并提示用户"规划完毕，dev/review 即将接管"，然后结束本次会话。
+落盘完成后，你仅需做两件事：
+
+1. 用一段**纯文本**（不调任何工具）告诉用户：
+   - 写了几个 docs 文件、几个 issue 文件。
+   - **明确提示下一步**：
+     ```
+     规划已完毕。接下来请按 Ctrl+D / 输入 /exit 退出当前会话，
+     然后在终端运行：./start.sh dev
+     这会启动 dev/review 双 agent 自动完成开发与审查。
+     ```
+2. **此后不要再调用任何工具**。用户如果仍发来消息（如 "继续"），你只需重复上面的下一步提示。不要试图重新规划、不要试图为用户启动 dev/review 代理。
 
 ---
 
