@@ -254,7 +254,7 @@ ln -s "$META_SRC" "$PROJ_E2E/.issuely"
 echo '{"workspace":"workspace","tools":""}' > "$PROJ_E2E/config.json"
 
 mkdir -p "$PROJ_E2E/workspace/issues" "$PROJ_E2E/workspace/docs"
-echo "# req" > "$PROJ_E2E/workspace/docs/requirements.md"
+echo "# prd" > "$PROJ_E2E/workspace/docs/prd.md"
 echo "# spec" > "$PROJ_E2E/workspace/docs/spec-project.md"
 echo "# style" > "$PROJ_E2E/workspace/docs/coding-style.md"
 for n in 000 001 002; do
@@ -306,7 +306,7 @@ v="$(node "$META_SRC/bin/status_manager.js" validate --workspace-dir "$PROJ_E2E/
 echo "$v" | grep -q '"ok": true' && ok "validate ok after pipeline" || { ng "validate failed: $v"; }
 
 # ─────────────────────────────────────────────────────────────────────────
-# 5. dev 模式（./start.sh dev 与别名 -c）：删 done 后再跑能重立
+# 5. dev 模式（./start.sh dev）：删 done 后再跑能重立
 # ─────────────────────────────────────────────────────────────────────────
 run_dev_subcmd_test() {
   local subcmd="$1" out="$2" label="$3"
@@ -328,9 +328,8 @@ run_dev_subcmd_test() {
   fi
 }
 
-note "5. start.sh dev (and -c alias) skip intake"
+note "5. start.sh dev skips intake"
 run_dev_subcmd_test "dev" "$TMP_ROOT/dev.out" "start.sh dev"
-run_dev_subcmd_test "-c"  "$TMP_ROOT/c.out"   "start.sh -c"
 
 # ─────────────────────────────────────────────────────────────────────────
 # 6. start.sh dev 在没有 issues/ 时应明确报错

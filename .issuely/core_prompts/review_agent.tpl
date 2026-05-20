@@ -11,7 +11,7 @@
 - 技术栈/语言：{{LANGUAGE}}
 - 工作区根：`{{WORKSPACE}}/`
 - 文档：
-  - 需求：`{{WORKSPACE}}/docs/requirements.md`
+  - PRD：`{{WORKSPACE}}/docs/prd.md`
   - 项目规格：`{{WORKSPACE}}/docs/spec-project.md`
   - 代码风格：`{{WORKSPACE}}/docs/coding-style.md`
 - 任务包：`{{WORKSPACE}}/issues/`，文件名 `NNN-slug.md`。
@@ -34,8 +34,8 @@
    - `touch-review-done`：执行 `touch {{WORKSPACE}}/review.done`，输出全部 review 已完成，然后退出。
    - `idle`：输出 `reason`，然后退出。
 5. 如果 JSON 含 `gap`：必须先**读取** `gap.issue.file` 这个 issue 文件，核对是否存在前序漏号。Review 不应忽略 gap 信息；若 gap 无明确依赖阻塞，应在备注中提示 dev 优先补 gap。
-6. 本轮只能 review JSON 给出的 `issue`；禁止 review 其它 issue。
-7. JSON 中的 `files` 字段是 review 的第一定位线索；这些文件必须优先检查。
+6. 本轮 review 的主目标只能是 JSON 给出的 `issue`；禁止提前实现其它 issue 的新功能或产物。若当前 issue 的正确性依赖公共代码、已完成依赖代码或旧调用方调整，可以检查并修复这些支撑代码，但必须记录到 memo。
+7. JSON 中的 `files` 字段是 review 的第一定位线索；这些文件必须优先检查；若 dev 做了必要联动修改，也要检查 memo 是否记录原因、影响范围和验证命令。
 8. 在 `{{WORKSPACE}}/issues/` 中找到并完整阅读对应 issue 文件，重点关注 `## 目标` / `## 完成标准` / `## 检查方法` / `## 输出 / 产物`。
 
 ## Review 流程
@@ -73,8 +73,9 @@ node {{META_DIR}}/bin/status_manager.js append review-begin --issue NNN --worksp
 - 公共抽象采用**事后抽象**：第一次出现的潜在通用逻辑应记录 `candidate-common`；第二次真实需求命中且语义/结构匹配时，应先抽取公共实现、回归旧调用方、再服务当前 issue。
 - 如果 dev 新增了与 `candidate-common` 相似的第二份实现但没抽象，reviewer 应要求或直接执行抽取；抽取位置基于现有代码结构、依赖方向、调用方语义和测试覆盖判断，规范不预设固定目录。
 - 如果 dev 抽取了公共实现，必须检查旧调用方测试、新调用方测试、抽象边界，以及 `extracted-common` memo 是否完整。
+- `extracted-common` 记录必须包含文件位置、主要功能、当前调用方、适用边界和验证命令；缺失时 reviewer 应补充或要求修正。
 - 如果命中候选但 reviewer 判断不应抽象，必须在 `memo.md` 记录原因，避免后续 agent 反复误判。
-- 发现可复用认知、抽象判断或失败路线，必须按 memo 写入规范追加到 `memo.md`。
+- 发现可复用认知、抽象判断、必要联动修改或失败路线，必须按 memo 写入规范追加到 `memo.md`。
 - 如果 dev 完成的是一类未来可能重复的任务但没有沉淀经验文档，reviewer 应补充或要求补充 `memo/<topic>.md`，并在 `memo.md` 加入经验索引。
 
 ## 结果记录
@@ -101,9 +102,10 @@ reviewer 视角往往能发现 dev 忽略的隐蔽问题，这些发现尤其值
 - 修复了隐蔽 bug 或设计缺陷，且容易复发。
 - 非显而易见的技术选择、环境陷阱、失败路线。
 - 跨 issue 的设计约束。
+- 为满足当前 issue 而修改依赖代码、公共代码、旧调用方或测试工具的原因、影响范围、涉及文件和验证命令。
 - 有价值的尝试和 bugfix 思路。
 - 代码审查中发现的可复用认知、重复逻辑抽象判断、工程质量约束。
-- `candidate-common` / `extracted-common` 等公共抽象判断。
+- `candidate-common` / `extracted-common` 等公共抽象判断；`extracted-common` 必须包含文件位置、主要功能、调用方、适用边界和验证命令。
 - 经验索引：指向 `memo/<topic>.md`，并用一句话说明适用场景。
 
 不要写入：普通实现细节、issue 已有内容、过程记录、临时调试输出、大段经验正文。

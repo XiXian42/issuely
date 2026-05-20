@@ -11,7 +11,7 @@
 - 技术栈/语言：{{LANGUAGE}}
 - 工作区根：`{{WORKSPACE}}/`
 - 文档：
-  - 需求：`{{WORKSPACE}}/docs/requirements.md`
+  - PRD：`{{WORKSPACE}}/docs/prd.md`
   - 项目规格：`{{WORKSPACE}}/docs/spec-project.md`
   - 代码风格：`{{WORKSPACE}}/docs/coding-style.md`
 - 任务包：`{{WORKSPACE}}/issues/`，文件名 `NNN-slug.md` 按数字顺序排列。
@@ -22,7 +22,7 @@
 ## 启动流程 / 状态恢复判断
 
 1. 先读 `{{WORKSPACE}}/docs/spec-project.md` 与 `{{WORKSPACE}}/docs/coding-style.md`，再开始执行；必须遵守其中的边界和规范。
-2. 如果 `{{WORKSPACE}}/docs/requirements.md` 存在，按需阅读；不要全文反复读，只取与当前 issue 相关的章节。
+2. 如果 `{{WORKSPACE}}/docs/prd.md` 存在，按需阅读；不要全文反复读，只取与当前 issue 相关的章节。
 3. 如果 `{{WORKSPACE}}/memo.md` 存在，读取它了解历史踩坑、公共抽象候选 (`candidate-common` / `extracted-common`) 和经验索引。若 memo.md 经验索引中有与当前 issue 类型明显相关的 `memo/*.md`，**仅**读取对应经验文档，不要全量读取整个 `memo/` 目录。
 4. 必须调用状态机工具获取本轮计划，禁止自行 grep/解析 `status.md` 来决定下一个 issue：
    ```bash
@@ -36,8 +36,8 @@
    - `touch-dev-done`：执行 `touch {{WORKSPACE}}/dev.done`，输出全部开发已完成，然后退出。
    - `idle`：输出 `reason`，然后退出。
 6. 如果 JSON 含 `gap`：必须先**读取** `gap.issue.file` 这个 issue 文件，核对它的目标、依赖、输出和检查方法。如果它没有明确的依赖阻塞，应优先补做这个 gap issue；若确有依赖缺失，则继续 JSON 中的 `issue` 或 `alternateIssue`，并在 memo / blocked 里记录原因。
-7. 本轮只能处理 JSON 给出的 `issue`（或经第 6 步判断后的 `gap.issue` / `alternateIssue`）；禁止处理其它 issue。
-8. 检查最终选定 issue 的 `## 输入 / 依赖`，确认前置依赖已完成。禁止在同一轮同时完成依赖和当前 issue。
+7. 本轮的主目标只能是 JSON 给出的 `issue`（或经第 6 步判断后的 `gap.issue` / `alternateIssue`）；禁止提前实现其它 issue 的新功能或产物。
+8. 检查最终选定 issue 的 `## 输入 / 依赖`，确认前置依赖已完成。若前置 issue 未完成，不要在同一轮补完整个前置 issue；应 blocked 或按 status_manager 给出的 gap 规则处理。若当前 issue 暴露出已完成依赖代码的缺陷或抽象缺口，允许做必要联动修改，并按 memo 规范记录。
 
 ## 执行一个 issue 的步骤
 
@@ -51,6 +51,7 @@
    - 已有公共实现或模式可复用时，优先复用，不要重新探索或重复造轮子。
    - 如果当前 issue 命中某个经验文档 `memo/<topic>.md`，按其中的流程、参考信息位置、注意事项与常见问题执行。
    - 公共抽象采用**事后抽象**：第一次出现的可能通用逻辑，默认局部实现；完成时在 memo.md 记录 `candidate-common`，写明位置、用途、暂不抽象的原因和后续触发抽取的条件。第二次真实需求命中且语义/结构匹配时，先抽取公共实现、修改旧调用方使用公共实现、跑旧调用方测试，再用公共实现完成当前 issue。
+   - 如果当前 issue 本身就是通用组件 / 通用模型 issue，完成后必须在 memo.md 的 `extracted-common` 记录文件位置、主要功能、当前调用方、适用边界和验证命令。
    - 如果命中候选但判断不应抽象，必须在 memo.md 记录原因，避免后续 agent 反复误判。
    - 禁止为单个业务场景制造特化 helper 来伪装 “公共抽象”。
 4. 按 `## 目标` 实现功能；代码与测试只能写到 `{{WORKSPACE}}/` 下，遵守 `spec-project.md` 中的目录约定。
@@ -81,7 +82,8 @@
   node {{META_DIR}}/bin/status_manager.js append blocked --issue NNN \
        --message "<原因>" --workspace-dir {{WORKSPACE}} --json
   ```
-- 不跨 issue 同时修改多个 issue 的代码。
+- 不提前实现其它 issue 的新功能或产物。
+- 如果为了满足当前 issue 必须修改依赖代码、公共代码、旧调用方或测试工具，可以修改；但必须在 memo.md 记录原因、影响范围、涉及文件和验证命令，并在 done 的 files 列表中列出全部变更。
 - 任何错误都不要静默吞掉。
 
 ## 备忘与经验文档（memo.md / memo/*.md）
@@ -96,7 +98,7 @@
 - 已验证的失败路线（试过什么、为什么放弃）。
 - 跨 issue 的设计约束（某接口/数据格式后续 issue 会依赖）。
 - 有价值的 bugfix 思路。
-- `candidate-common` / `extracted-common` 等公共抽象判断。
+- `candidate-common` / `extracted-common` 等公共抽象判断；`extracted-common` 必须包含文件位置、主要功能、调用方、适用边界和验证命令。
 - 经验索引：链接到 `memo/<topic>.md`，并用一句话说明适用场景。
 
 不要写入：普通实现细节、issue 已有内容、过程性记录（“我刚刚改了哪个文件”）、临时调试输出、大段经验正文。

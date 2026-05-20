@@ -47,10 +47,10 @@ deadlock_exit() {
 }
 
 echo "[run_while] 启动循环调度"
-echo "  project   : $ISSUELY_PROJECT_DIR"
-echo "  workspace : $WORKSPACE"
-echo "  issues    : $ISSUES_DIR"
-echo "  status    : $STATUS_PATH"
+echo "  project   : ."
+echo "  workspace : workspace"
+echo "  issues    : workspace/issues"
+echo "  status    : workspace/status.md"
 
 while true; do
   if [ -f "$DEV_DONE" ] && [ -f "$REVIEW_DONE" ]; then

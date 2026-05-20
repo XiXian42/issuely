@@ -44,20 +44,23 @@ rl.on("line",(line)=>{
 }
 
 # render_prompt <tpl_path> <out_path>
-# 通过 env 传所有变量；prompt 模板内 {{VAR}} 占位由 Node 替换。
-# 绝不在 shell 字符串里内插用户/项目数据。
+# 先加载 .issuely/agent.md，再加载角色 prompt。
+# prompt 里只注入可移植相对路径，避免把本机绝对路径写进日志或项目产物。
 render_prompt() {
   local tpl="$1" out="$2"
-  TPL_FILE="$tpl" OUT_FILE="$out" \
-  WORKSPACE="$WORKSPACE" META_DIR="$META_DIR" ISSUES_DIR="$ISSUES_DIR" \
+  TPL_FILE="$tpl" OUT_FILE="$out" AGENT_RULES_FILE="$META_DIR/agent.md" \
   PROJECT_NAME="$PROJECT_NAME" LANGUAGE="$LANGUAGE" \
   node - <<'RENDER_PROMPT'
 const fs = require("fs");
-const tpl = fs.readFileSync(process.env.TPL_FILE, "utf8");
+const globalRules = fs.existsSync(process.env.AGENT_RULES_FILE)
+  ? fs.readFileSync(process.env.AGENT_RULES_FILE, "utf8")
+  : "";
+const roleTpl = fs.readFileSync(process.env.TPL_FILE, "utf8");
+const tpl = globalRules ? `${globalRules}\n\n---\n\n${roleTpl}` : roleTpl;
 const map = {
-  WORKSPACE:    process.env.WORKSPACE    || "",
-  META_DIR:     process.env.META_DIR     || "",
-  ISSUES_DIR:   process.env.ISSUES_DIR   || "",
+  WORKSPACE:    "workspace",
+  META_DIR:     ".issuely",
+  ISSUES_DIR:   "workspace/issues",
   PROJECT_NAME: process.env.PROJECT_NAME || "",
   LANGUAGE:     process.env.LANGUAGE     || ""
 };
@@ -80,7 +83,7 @@ run_pi_prompt() {
   if [ "${PI_TRACE:-1}" = "1" ]; then
     echo "[$tag] pi trace: on (--mode json, filtered)"
     if command -v jq >/dev/null 2>&1; then
-      pi "${args[@]}" --mode json -p "$(cat "$prompt_file")" | jq --unbuffered -r '
+      (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" --mode json -p "$(cat "$prompt_file")") | jq --unbuffered -r '
         if .type == "turn_start" then "[turn:start]"
         elif .type == "turn_end" then "[turn:end]"
         elif .type == "agent_end" then "[agent:end]"
@@ -92,9 +95,9 @@ run_pi_prompt() {
       ' | timestamp_stream
     else
       echo "[$tag] jq not found; falling back to raw stream"
-      pi "${args[@]}" --mode json -p "$(cat "$prompt_file")"
+      (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" --mode json -p "$(cat "$prompt_file")")
     fi
   else
-    pi "${args[@]}" -p "$(cat "$prompt_file")"
+    (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" -p "$(cat "$prompt_file")")
   fi
 }
