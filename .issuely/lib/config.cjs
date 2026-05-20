@@ -108,7 +108,8 @@ function loadConfig(opts = {}) {
     memoPath:     path.join(workspaceAbs, "memo.md"),
     devDone:      path.join(workspaceAbs, "dev.done"),
     reviewDone:   path.join(workspaceAbs, "review.done"),
-    logDir:       path.join(metaDir, "logs"),
+    // 运行日志属于项目数据，必须放在 workspace/ 下；.issuely/ 只保留引擎代码。
+    logDir:       path.join(workspaceAbs, "logs"),
     models,
     tools,
     piTrace

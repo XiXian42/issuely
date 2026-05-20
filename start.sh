@@ -50,7 +50,7 @@ Project layout:
   workspace/issues/    有序任务包
   workspace/status.md  进度状态机（请勿手改）
   workspace/memo.md    项目记忆
-  .issuely/logs/       运行日志（续跑时自动产生）
+  workspace/logs/      运行日志（续跑时自动产生）
 
 Env overrides:
   ISSUELY_PROJECT_DIR  项目根（默认：start.sh 所在目录）
@@ -187,61 +187,47 @@ if [ "$DECISION" = 1 ]; then
 fi
 
 # ─────────────────────────────────────────────────────────────
-# 收集需求
+# 收集需求：只问一句话，后续交给 Planner 在 TTY 内多轮追问
 # ─────────────────────────────────────────────────────────────
-echo "💡 请告诉 Issuely，你今天想写点什么？"
+echo "💡 一句话告诉 Issuely 你想做什么。Planner 会接管对话，主动追问到需求清晰为止。"
 echo "----------------------------------------------------------"
-read -p "👉 1. 项目名称（例 next-todo）: " IN_PROJECT_NAME
-[ -z "$IN_PROJECT_NAME" ] && IN_PROJECT_NAME="my-project"
-
-read -p "👉 2. 技术栈/语言（例 NextJS + React / Python FastAPI / Go / Rust）: " IN_LANGUAGE
-[ -z "$IN_LANGUAGE" ] && IN_LANGUAGE="JavaScript (Node.js)"
-
-echo "👉 3. 规划深度："
-echo "   [A] 快速规划（推荐）"
-echo "   [B] 深度对话"
-read -p "选择 (A/B) [默认 A]: " IN_MODE
-[ -z "$IN_MODE" ] && IN_MODE="A"
-
-echo "👉 4. 详细描述你的业务需求（越细越好；输入完成按 Ctrl+D 结束）："
-echo "----------------------------------------------------------"
-RAW_NEED=$(cat)
-echo "----------------------------------------------------------"
+read -p "👉 一句话需求（例如：我想一个 NextJS 代办小应用）: " RAW_NEED
 
 if [ -z "$RAW_NEED" ]; then
-  echo "[Error] 需求描述为空。Issuely 退出。" >&2
+  echo "[Error] 需求为空。Issuely 退出。" >&2
   exit 1
 fi
 
-# 写 config.json：通过 env 传 originalRequirement，避免任何 shell 内插
+# 先写一份临时 config.json：只保证 originalRequirement。projectName 与 language
+# 由 Planner 多轮追问后调用 config.cjs write 自行回写。
 RAW_NEED="$RAW_NEED" \
 node "$ISSUELY_META_DIR/lib/config.cjs" write \
      --project-dir "$ISSUELY_PROJECT_DIR" \
-     --project-name "$IN_PROJECT_NAME" \
-     --language "$IN_LANGUAGE" \
      --workspace "$(basename "$WORKSPACE")" \
      --original-requirement-from-env RAW_NEED >/dev/null
 
-# 重新加载（取最新值）
+# 重新加载
 eval "$(node "$ISSUELY_META_DIR/lib/config.cjs" print-shell)"
 
-# 给 Planner 的初始 message：纯 env+stdin 拼，零 shell 内插
-INITIAL_MESSAGE="$(PROJECT_NAME="$PROJECT_NAME" LANGUAGE="$LANGUAGE" \
-                   MODE_CHOICE="$IN_MODE" RAW_NEED="$RAW_NEED" \
+# 给 Planner 的初始 message：只传一句话 + 路径上下文
+INITIAL_MESSAGE="$(RAW_NEED="$RAW_NEED" \
+                   ISSUELY_META_DIR="$ISSUELY_META_DIR" \
+                   ISSUELY_PROJECT_DIR="$ISSUELY_PROJECT_DIR" \
+                   WORKSPACE="$WORKSPACE" \
                    node - <<'BUILD_MSG'
-process.stdout.write(`## 用户初始化输入
-项目名称：${process.env.PROJECT_NAME}
-技术栈选型：${process.env.LANGUAGE}
-深度模式：${process.env.MODE_CHOICE}
-业务原始需求：
+process.stdout.write(`用户一句话需求：
 ${process.env.RAW_NEED}
 
-如果是模式 A（快速规划）：直接调用 write 工具，把 docs/ 与 issues/ 一次性落盘到 workspace/ 下，落盘后输出"规划完毕"并退出。
-如果是模式 B（深度对话）：先抛出第 1 个澄清问题，逐轮收敛，待用户确认后再一次性落盘。`);
+环境上下文：
+- 项目根：${process.env.ISSUELY_PROJECT_DIR}
+- 框架目录：${process.env.ISSUELY_META_DIR}
+- workspace 路径：${process.env.WORKSPACE}
+
+请按 system-prompt 里的工作流，与用户多轮对话，在需求没有 gap 之前不要落盘。`);
 BUILD_MSG
 )"
 
-# 构造 pi 调用参数（C 项：不写死 --tools）
+# 不传 -p：pi 走交互式 TUI，接管用户输入/输出，支持多轮
 PI_ARGS=()
 [ -n "$PI_TOOLS" ] && PI_ARGS+=(--tools "$PI_TOOLS")
 [ -n "$PLANNER_MODEL" ] && PI_ARGS+=(--model "$PLANNER_MODEL")
@@ -249,6 +235,7 @@ PI_ARGS=()
 pi "${PI_ARGS[@]}" \
    --system-prompt "$(cat "$ISSUELY_META_DIR/core_prompts/planner_agent.tpl")" \
    "$INITIAL_MESSAGE"
+
 
 # Planner 后置校验
 if [ ! -d "$ISSUES_DIR" ] || [ -z "$(ls -A "$ISSUES_DIR" 2>/dev/null)" ] \
