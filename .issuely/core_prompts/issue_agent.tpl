@@ -123,8 +123,9 @@ Issue 已完成：workspace/issues/
 <列出本 issue 需要复用、回归或影响的 issue：前置依赖、相关回归、后续消费分别说明；验收类 issue 必须列出覆盖的业务 issue>
 
 ## 输出 / 产物
-<列出本 issue 应新增/修改/删除的文件，路径相对于仓库根。
- 例：workspace/src/foo.py(new), workspace/tests/test_foo.py(new)>
+<只列出本 issue 必须新增/修改/删除的明确文件，路径相对于仓库根。
+ 例：workspace/src/foo.py(new), workspace/tests/test_foo.py(new)。
+ 禁止写 optional、按需、可能、workspace/src/**、workspace/tests/** 或其它宽泛 glob；如果验收/Hardening 执行中发现并修复额外文件，由 dev 在 status files 中精确记录，不预写到 issue。>
 
 ## 集成要求
 <说明本 issue 接入哪个页面 / API / 命令 / 数据流 / 主流程；输出会被谁消费；是否需要联调或 E2E>
@@ -166,13 +167,14 @@ Issue 已完成：workspace/issues/
 12. 简单模式默认只规划 MVP；除非 PRD 明确要求，不主动加入数据库、登录、权限、成员系统、邮件、支付、复杂 e2e。
 13. issue 之间用 `输入 / 依赖` 明确声明前置关系，用 `相关 issue` 说明相关回归和后续消费，用 `集成要求` 说明输出被谁消费、接入哪条流程。
 14. 检查方法必须真的能跑，能用退出码自证成败；验收类 issue 可包含 agent-driven E2E 步骤，不必写成项目代码或 npm script，但必须要求输出验收报告。
-15. 检查命令必须与项目语言、模块系统、包管理器和运行目录一致；例如 ESM 项目不要生成 CommonJS-only 的 `require(...)` 检查。
-16. 检查方法必须分层，避免每个 issue 都默认跑昂贵的完整构建或全项目验证：
+15. `## 输出 / 产物` 必须只包含明确且必做的文件；禁止 optional、按需、可能、`workspace/src/**`、`workspace/tests/**` 等宽泛 glob。验收/Hardening issue 的固定产物通常是 `workspace/logs/NNN-*.md(new)` 和明确的测试/脚本文件；若执行中修复代码，实际变更由 dev 在 status files 中精确记录。
+16. 检查命令必须与项目语言、模块系统、包管理器和运行目录一致；例如 ESM 项目不要生成 CommonJS-only 的 `require(...)` 检查。
+17. 检查方法必须分层，避免每个 issue 都默认跑昂贵的完整构建或全项目验证：
     - `related check`：当前 issue 相关测试；每个 issue 必须有。
     - `static / compile check`：类型、编译、静态校验；仅在修改公开契约、类型、入口、配置、构建边界时加入。
     - `integration check`：联调、主流程、E2E、冒烟；用于业务闭环和集成 issue。
     - `full verification`：完整项目验证；只用于 walking skeleton、依赖/构建配置变更、集成/冒烟/final hardening 或明确需要证明可交付产物的 issue。
-17. `static / compile check` 示例仅供参考，不要硬编码到不适用的项目：
+18. `static / compile check` 示例仅供参考，不要硬编码到不适用的项目：
     ```text
     Node TS: npm run typecheck
     Python:  python -m compileall src 或 mypy
@@ -180,8 +182,8 @@ Issue 已完成：workspace/issues/
     Rust:    cargo check
     Java:    ./gradlew compileJava
     ```
-18. 测试输出极简：成功只一行 `passed` / `OK`。
-19. 不要把多种语言或技术混进同一 issue，除非项目本身需要。
+19. 测试输出极简：成功只一行 `passed` / `OK`。
+20. 不要把多种语言或技术混进同一 issue，除非项目本身需要。
 
 ---
 
