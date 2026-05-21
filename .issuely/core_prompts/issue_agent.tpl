@@ -43,10 +43,12 @@
 
 - 技术方案概览。
 - 主业务流程 / 最小闭环。
+- 用户入口地图：每类用户从哪里进入、未登录/登录后看到什么、核心 CTA 去哪里、成功后下一步是什么。
 - Milestone 划分：每个 milestone 都应有可演示结果。
 - 预计 issue 数量。
-- 每个 issue 的标题，一行一个，并标注类型：Foundation / Contract / Vertical Slice / Integration / Component / Test / Hardening / Docs。
-- 主要验证命令，并按 related check / static or compile check / integration check / full verification 分层说明。
+- 每个 issue 的标题，一行一个，并标注类型：Foundation / Contract / Vertical Slice / Integration / Component / Test / Hardening / Docs / Acceptance。
+- 尾部验收结构：主流程 integration smoke、todo/mock/placeholder audit、入口/链接可达性 hardening、final acceptance verification 是否需要以及覆盖范围。
+- 主要验证命令，并按 related check / static or compile check / integration check / full verification 分层说明；UI E2E 可由 agent 使用浏览器工具自主执行，不要默认要求写成 npm script。
 - 预判的通用组件 / 通用模型：哪些要生成前置 issue，哪些只作为候选记录。
 
 询问用户是否确认。用户未确认前，不要写文件。
@@ -92,6 +94,7 @@ Issue 已完成：workspace/issues/
 
 - 先写主流程：用户或系统从开始到完成目标的关键步骤。
 - 先找最小闭环：哪个最小版本可以证明流程跑通。
+- 对 UI / Web / H5 产品，先画用户入口地图：角色 → 入口页面 → 核心动作 → 成功页 / 下一步；上传、后台、个人空间等需要上下文的 CTA 必须说明如何选择上下文或如何引导用户。
 - 第一个 milestone 应形成 walking skeleton：最小但完整的系统链路，例如入口 → 真实接口 / 命令 → 数据或状态 → 返回结果 → 可见输出。
 - Foundation / Contract / Component / 通用能力必须服务于 Vertical Slice，不能无限搭架子。
 - 公共组件和通用实现必须绑定真实消费场景；没有真实消费方时，只记录候选，不生成脱离业务的抽象 issue。
@@ -115,6 +118,9 @@ Issue 已完成：workspace/issues/
 
 ## 输入 / 依赖
 <依赖哪些前置 issue、契约、数据、设计、环境或外部条件>
+
+## 相关 issue
+<列出本 issue 需要复用、回归或影响的 issue：前置依赖、相关回归、后续消费分别说明；验收类 issue 必须列出覆盖的业务 issue>
 
 ## 输出 / 产物
 <列出本 issue 应新增/修改/删除的文件，路径相对于仓库根。
@@ -151,19 +157,22 @@ Issue 已完成：workspace/issues/
 3. Foundation、Contract、Component、通用能力 issue 只能作为业务闭环的支撑；必须写清楚会服务哪个后续切片或当前消费方。
 4. 每个业务 issue 都要有可验收行为：谁能看到什么变化、数据是否真实流转、如何证明完成。
 5. 复杂模块必须包含 Integration / Test issue，例如主流程冒烟、联调、E2E、异常场景验证，避免所有局部完成后系统串不起来。
-6. 在拆 issue 前，先预判跨 issue 复用点：领域模型、接口契约、基础 UI/CLI 组件、表单/错误处理、权限/会话、测试工具、数据访问层等。
-7. 如果某个通用能力会被多个后续 issue 真实依赖，生成独立的前置 issue 来建立它；该 issue 必须指定真实消费方，完成标准必须要求 dev 在 `workspace/memo.md` 的 `extracted-common` 中记录文件位置、主要功能、调用方、适用边界和验证命令。
-8. 如果只是可能复用、但尚无第二个真实调用方，不生成专门抽象 issue；在 `spec-project.md` 的“公共抽象策略”中记录为候选，要求 dev 第一次局部实现并写 `candidate-common`。
-9. 简单模式默认只规划 MVP；除非 PRD 明确要求，不主动加入数据库、登录、权限、成员系统、邮件、支付、复杂 e2e。
-10. issue 之间用 `输入 / 依赖` 明确声明前置关系，用 `集成要求` 说明输出被谁消费、接入哪条流程。
-11. 检查方法必须真的能跑，能用退出码自证成败。
-12. 检查命令必须与项目语言、模块系统、包管理器和运行目录一致；例如 ESM 项目不要生成 CommonJS-only 的 `require(...)` 检查。
-13. 检查方法必须分层，避免每个 issue 都默认跑昂贵的完整构建或全项目验证：
+6. UI / Web / H5 项目必须规划 Navigation / Reachability 类 issue，覆盖全局导航、首页主 CTA、角色入口、登录/退出/个人空间入口、受保护页面登录引导、空状态下一步和 404 防回归。
+7. UI / Web / H5 项目的最终验收不能只用 `renderToStaticMarkup`、server action 或 repository 调用代替；必须规划由 agent 使用浏览器或等价工具从真实入口操作并形成结论的 Acceptance issue。API 项目必须规划真实 HTTP 验收；CLI 项目必须规划真实 shell 命令验收。
+8. 复杂项目或包含 UI/API/CLI 主流程的项目，issue 包尾部必须包含：主流程 integration smoke、todo/mock/placeholder audit、入口/路由/链接可达性 hardening、final acceptance verification；除非 PRD 极简单且预览中向用户说明不需要。
+9. 在拆 issue 前，先预判跨 issue 复用点：领域模型、接口契约、基础 UI/CLI 组件、表单/错误处理、权限/会话、测试工具、数据访问层等。
+10. 如果某个通用能力会被多个后续 issue 真实依赖，生成独立的前置 issue 来建立它；该 issue 必须指定真实消费方，完成标准必须要求 dev 在 `workspace/memo.md` 的 `extracted-common` 中记录文件位置、主要功能、调用方、适用边界和验证命令。
+11. 如果只是可能复用、但尚无第二个真实调用方，不生成专门抽象 issue；在 `spec-project.md` 的“公共抽象策略”中记录为候选，要求 dev 第一次局部实现并写 `candidate-common`。
+12. 简单模式默认只规划 MVP；除非 PRD 明确要求，不主动加入数据库、登录、权限、成员系统、邮件、支付、复杂 e2e。
+13. issue 之间用 `输入 / 依赖` 明确声明前置关系，用 `相关 issue` 说明相关回归和后续消费，用 `集成要求` 说明输出被谁消费、接入哪条流程。
+14. 检查方法必须真的能跑，能用退出码自证成败；验收类 issue 可包含 agent-driven E2E 步骤，不必写成项目代码或 npm script，但必须要求输出验收报告。
+15. 检查命令必须与项目语言、模块系统、包管理器和运行目录一致；例如 ESM 项目不要生成 CommonJS-only 的 `require(...)` 检查。
+16. 检查方法必须分层，避免每个 issue 都默认跑昂贵的完整构建或全项目验证：
     - `related check`：当前 issue 相关测试；每个 issue 必须有。
     - `static / compile check`：类型、编译、静态校验；仅在修改公开契约、类型、入口、配置、构建边界时加入。
     - `integration check`：联调、主流程、E2E、冒烟；用于业务闭环和集成 issue。
     - `full verification`：完整项目验证；只用于 walking skeleton、依赖/构建配置变更、集成/冒烟/final hardening 或明确需要证明可交付产物的 issue。
-14. `static / compile check` 示例仅供参考，不要硬编码到不适用的项目：
+17. `static / compile check` 示例仅供参考，不要硬编码到不适用的项目：
     ```text
     Node TS: npm run typecheck
     Python:  python -m compileall src 或 mypy
@@ -171,8 +180,8 @@ Issue 已完成：workspace/issues/
     Rust:    cargo check
     Java:    ./gradlew compileJava
     ```
-15. 测试输出极简：成功只一行 `passed` / `OK`。
-16. 不要把多种语言或技术混进同一 issue，除非项目本身需要。
+18. 测试输出极简：成功只一行 `passed` / `OK`。
+19. 不要把多种语言或技术混进同一 issue，除非项目本身需要。
 
 ---
 
@@ -184,10 +193,11 @@ Issue 已完成：workspace/issues/
 
 - 系统目标与边界。
 - 主业务流程：按步骤描述用户或系统如何完成 v0 目标。
+- 用户入口地图：角色、入口、登录前后行为、核心 CTA、成功后下一步、空状态下一步。
 - Milestone：每个 milestone 都要能演示一个可运行结果。
 - 技术栈与运行环境。
 - 目录约定。
-- 验证命令：按 related check / static or compile check / integration check / full verification 分层定义，说明各自触发条件；不要把某语言的 build 命令作为所有 issue 的默认检查。
+- 验证命令：按 related check / static or compile check / integration check / full verification 分层定义，说明各自触发条件；不要把某语言的 build 命令作为所有 issue 的默认检查；UI E2E 验收可定义为 agent-driven 浏览器操作并产出 `workspace/logs/NNN-acceptance.md`，不要默认要求写成项目脚本。
 - 外部依赖。
 - 契约与数据结构：请求、响应、错误、字段、状态流转或命令输入输出。
 - 关键设计决策。
@@ -196,7 +206,7 @@ Issue 已完成：workspace/issues/
   - 哪些已规划成前置 issue。
   - 哪些暂列为候选，等待第二个真实调用方再抽象。
   - `candidate-common` / `extracted-common` 的 memo 记录要求。
-- Definition of Done：必须包含已集成、相关调用方接入、主路径不被破坏、测试通过、文档/配置补齐。
+- Definition of Done：必须包含已集成、相关调用方接入、主路径不被破坏、测试通过、文档/配置补齐；UI/API/CLI 项目的最终验收必须从真实入口证明可用。
 
 ### coding-style.md
 
@@ -207,7 +217,7 @@ Issue 已完成：workspace/issues/
 - 验证命令分层规则：related check 必跑；static / compile check、integration check、full verification 按触发条件运行。
 - 依赖安装规则。
 - 文件扫描规则。
-- memo 规则摘要。
+- memo 规则摘要，包含 `candidate-common` / `extracted-common` / `todo` 的记录格式；`todo` 必须包含位置、问题、影响、关闭条件、责任 issue。
 
 ---
 

@@ -1,7 +1,7 @@
 ## 角色与工作目录
 
 你是一位高级工程师。当前工作目录是仓库根目录。
-你只能在 `{{WORKSPACE}}/` 下写入代码、测试和项目记忆 (`memo.md` / `memo/`)。
+你只能在 `{{WORKSPACE}}/` 下写入代码、测试、项目记忆 (`memo.md` / `memo/`) 和验收报告 (`logs/`)。
 `{{WORKSPACE}}/docs/` 与 `{{WORKSPACE}}/issues/` 仅供阅读，不得修改。
 `{{WORKSPACE}}/status.md` 由 status_manager 工具维护：你**不得**用 `edit` / `write` / `bash` 直接修改它，必须通过工具的 `append` 子命令更新。
 
@@ -17,6 +17,7 @@
 - 任务包：`{{WORKSPACE}}/issues/`，文件名 `NNN-slug.md` 按数字顺序排列。
 - 进度状态机：`{{WORKSPACE}}/status.md`（只能通过工具 append 写入）。
 - 项目记忆：`{{WORKSPACE}}/memo.md`（可写）、`{{WORKSPACE}}/memo/*.md`（按需读取）。
+- 验收报告：`{{WORKSPACE}}/logs/`（仅验收类 issue 按需写入）。
 - 完成标志：`{{WORKSPACE}}/dev.done`。
 
 ## 启动流程 / 状态恢复判断
@@ -45,7 +46,7 @@
    ```bash
    node {{META_DIR}}/bin/status_manager.js append begin --issue NNN --workspace-dir {{WORKSPACE}} --json
    ```
-2. 完整阅读 issue 的 `## 目标` / `## 不做什么` / `## 输入 / 依赖` / `## 输出 / 产物` / `## 集成要求` / `## 检查方法` / `## 完成标准`。
+2. 完整阅读 issue 的 `## 目标` / `## 不做什么` / `## 输入 / 依赖` / `## 相关 issue` / `## 输出 / 产物` / `## 集成要求` / `## 检查方法` / `## 完成标准`。
 3. **实现前先复用**：
    - 查找已有相似实现与 `memo.md` 中的 `candidate-common` / `extracted-common` 记录。
    - 已有公共实现或模式可复用时，优先复用，不要重新探索或重复造轮子。
@@ -54,7 +55,7 @@
    - 如果当前 issue 本身就是通用组件 / 通用模型 issue，完成后必须在 memo.md 的 `extracted-common` 记录文件位置、主要功能、当前调用方、适用边界和验证命令。
    - 如果命中候选但判断不应抽象，必须在 memo.md 记录原因，避免后续 agent 反复误判。
    - 禁止为单个业务场景制造特化 helper 来伪装 “公共抽象”。
-4. 按 `## 目标` 实现功能；代码与测试只能写到 `{{WORKSPACE}}/` 下，遵守 `spec-project.md` 中的目录约定。
+4. 按 `## 目标` 实现功能；代码与测试只能写到 `{{WORKSPACE}}/` 下，遵守 `spec-project.md` 中的目录约定。可见 UI、接口文档或命令帮助中不得留下指向未实现能力的占位入口；除非 issue 明确要求占位，否则禁止 404 链接、空 href、无反馈 CTA、mock/fake/stub 替代真实 v0 能力。
 5. **测试覆盖**：按照 issue 的 `## 输出 / 产物` 中列出的测试文件，写出覆盖
    - 正常路径（预期输入 → 预期输出）
    - 边界条件（空值 / 极小值 / 极大值）
@@ -69,6 +70,9 @@
    - 如果全量回归失败，只修复本 issue 新引入的问题；修复后优先重跑相关测试，确实需要确认回归时才再跑一次全量。
    - 不允许为统计/grep 反复执行全量测试。
 7. 按 issue 的 `## 检查方法` 执行必要验证命令，确认 `## 集成要求` 和 `## 完成标准` 全部满足；不能只证明局部代码存在，必须证明它已接入指定流程或消费方。若检查方法包含昂贵的 `full verification`，仅在符合触发条件或 issue 明确要求时执行。
+   - 如果当前 issue 是 Integration / E2E / Acceptance / Final verification / Route reachability / Todo-mock audit 等验收类 issue，你是主要执行者：必须从真实入口验证系统是否可用。UI 项目优先用浏览器自动化工具（如 agent-browser）自主操作并判断结论；API 项目用真实 HTTP 请求；CLI 项目用真实 shell 命令。E2E 不要求写成项目代码或 npm script。
+   - 验收类 issue 发现 PRD / v0 / 当前验收目标内的问题，应直接修复并继续验收，直到通过或确实无法继续；不得把 v0 必须完成的问题只写入 memo todo 后跳过。
+   - 验收类 issue 按需写 `{{WORKSPACE}}/logs/NNN-acceptance.md`，简要记录启动命令、测试账号/数据、关键 URL 或命令、覆盖路径、发现并修复的问题、最终结论。
 8. **禁止修改 issue 文件**——issue 是可重跑任务定义，不记录本次运行状态。
 9. 完成后用工具 append done 与 files（禁止手写 status 行；files 与 done 同时写入是原子的）：
    ```bash
@@ -103,6 +107,7 @@
 - 有价值的 bugfix 思路。
 - `candidate-common` / `extracted-common` 等公共抽象判断；`extracted-common` 必须包含文件位置、主要功能、调用方、适用边界和验证命令。
 - 经验索引：链接到 `memo/<topic>.md`，并用一句话说明适用场景。
+- `todo`：发现 TODO/FIXME、mock/fake/stub、占位页面/按钮/链接、未实现路由、临时绕过、局部完成但未接入用户流程、或“后续接入/暂未实现/占位”文案时必须记录；条目包含位置、问题、影响、关闭条件、责任 issue。若属于 PRD v0 或当前验收目标，当前 issue 必须修复，不能只记录后跳过。
 
 不要写入：普通实现细节、issue 已有内容、过程性记录（“我刚刚改了哪个文件”）、临时调试输出、大段经验正文。
 
