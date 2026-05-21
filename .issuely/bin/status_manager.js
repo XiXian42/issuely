@@ -296,6 +296,46 @@ function appendLine(statusPath, line) {
   appendLines(statusPath, [line]);
 }
 
+function toPosixPath(value) {
+  return String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function normalizeStatusFilePath(filePath, state) {
+  let value = toPosixPath(filePath).trim();
+  if (!value) return value;
+
+  const workspaceAbs = toPosixPath(state.workspaceDir || path.join(state.root, "workspace"));
+  let workspaceRel = toPosixPath(path.relative(state.root, workspaceAbs)) || path.basename(workspaceAbs) || "workspace";
+  if (workspaceRel.startsWith("../") || workspaceRel === ".." || path.isAbsolute(workspaceRel)) {
+    workspaceRel = path.basename(workspaceAbs) || "workspace";
+  }
+  const rootAbs = toPosixPath(state.root);
+
+  if (value.startsWith(`${rootAbs}/`)) value = value.slice(rootAbs.length + 1);
+  if (value === workspaceAbs) value = workspaceRel;
+  else if (value.startsWith(`${workspaceAbs}/`)) value = `${workspaceRel}/${value.slice(workspaceAbs.length + 1)}`;
+
+  if (value === workspaceRel || value.startsWith(`${workspaceRel}/`)) return value;
+  if (value.startsWith(".issuely/") || value === "config.json" || value.startsWith("config/")) return value;
+  if (path.isAbsolute(value)) throw new Error(`status files path must be relative to repository root: ${value}`);
+  return `${workspaceRel}/${value}`;
+}
+
+function normalizeStatusFiles(files, state) {
+  if (!files) return files;
+  return String(files)
+    .split(",")
+    .map((raw) => {
+      const item = raw.trim();
+      if (!item) return "";
+      const match = /^(.*?)(\((?:new|mod|del)\))$/.exec(item);
+      if (!match) return normalizeStatusFilePath(item, state);
+      return `${normalizeStatusFilePath(match[1], state)}${match[2]}`;
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
 function appendStatus(kind, options) {
   const state = loadState(options);
   const issue = resolveIssue(state, options.issue);
@@ -319,8 +359,9 @@ function appendStatus(kind, options) {
     if (!entry.begin) throw new Error("cannot append done before begin");
     if (entry.done) return skipped("done already exists");
     if (!options.files) throw new Error("--files is required for done");
+    const normalizedFiles = normalizeStatusFiles(options.files, state);
     const doneLine = `${base} [done] ${stamp}`;
-    const filesLine = `${base} [files: ${options.files}] ${stamp}`;
+    const filesLine = `${base} [files: ${normalizedFiles}] ${stamp}`;
     appendLines(state.statusPath, [doneLine, filesLine]);
     return { action: "append", kind, issue: issueOut(issue, state.issues), skipped: false, lines: [doneLine, filesLine] };
   }
@@ -334,7 +375,7 @@ function appendStatus(kind, options) {
     if (entry.reviewed) return skipped("reviewed already exists");
     const lines = [];
     if (options.message) {
-      const files = options.files ? `; files: ${options.files}` : "";
+      const files = options.files ? `; files: ${normalizeStatusFiles(options.files, state)}` : "";
       lines.push(`${base} [review-fixed: ${options.message}${files}] ${stamp}`);
     }
     lines.push(`${base} [reviewed] ${stamp}`);
@@ -343,7 +384,7 @@ function appendStatus(kind, options) {
   }
   if (kind === "review-fixed") {
     if (!options.message) throw new Error("--message is required for review-fixed");
-    const files = options.files ? `; files: ${options.files}` : "";
+    const files = options.files ? `; files: ${normalizeStatusFiles(options.files, state)}` : "";
     return appended(`${base} [review-fixed: ${options.message}${files}] ${stamp}`);
   }
   if (kind === "blocked") {

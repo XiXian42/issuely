@@ -45,7 +45,7 @@
    ```bash
    node {{META_DIR}}/bin/status_manager.js append begin --issue NNN --workspace-dir {{WORKSPACE}} --json
    ```
-2. 完整阅读 issue 的 `## 目标` / `## 不做什么` / `## 检查方法` / `## 完成标准`。
+2. 完整阅读 issue 的 `## 目标` / `## 不做什么` / `## 输入 / 依赖` / `## 输出 / 产物` / `## 集成要求` / `## 检查方法` / `## 完成标准`。
 3. **实现前先复用**：
    - 查找已有相似实现与 `memo.md` 中的 `candidate-common` / `extracted-common` 记录。
    - 已有公共实现或模式可复用时，优先复用，不要重新探索或重复造轮子。
@@ -60,19 +60,22 @@
    - 边界条件（空值 / 极小值 / 极大值）
    - 异常路径（非法输入应报错或返回合理结果）
    测试输出必须极简：全部通过时**只输出一行** `passed`（或同等单行汇总），不输出每个用例的 `✓` 明细；只有失败时才打印失败用例名、错误信息和必要堆栈。具体如何写测试由项目自身语言决定（Node / Python / Go / 其它），保持与 `coding-style.md` 一致。
-6. **运行测试**：在 `{{WORKSPACE}}/` 下执行。策略：
-   - 必跑当前 issue 直接相关的测试，以及被本轮修改模块的直接相关测试。
+6. **运行测试 / 验证**：在 `{{WORKSPACE}}/` 下执行。策略：
+   - 必跑当前 issue 的 `related check`，以及被本轮修改模块的直接相关测试。
+   - 只有当 issue 检查方法要求，或本轮修改了公开契约、类型、入口、配置、构建边界时，才运行 `static / compile check`。
+   - 只有业务闭环、联调、E2E、冒烟类 issue 才运行 `integration check`。
+   - `full verification` 只用于 walking skeleton、依赖/构建配置变更、集成/冒烟/final hardening 或明确需要证明可交付产物的 issue；不要每个 issue 默认运行。
    - 全量回归**最多跑一次**；如果需要分析全量输出，把它保存到一个临时文件再 grep，不要重复执行全量。
    - 如果全量回归失败，只修复本 issue 新引入的问题；修复后优先重跑相关测试，确实需要确认回归时才再跑一次全量。
    - 不允许为统计/grep 反复执行全量测试。
-7. 按 issue 的 `## 检查方法` 执行验证命令，确认 `## 完成标准` 全部满足。
+7. 按 issue 的 `## 检查方法` 执行必要验证命令，确认 `## 集成要求` 和 `## 完成标准` 全部满足；不能只证明局部代码存在，必须证明它已接入指定流程或消费方。若检查方法包含昂贵的 `full verification`，仅在符合触发条件或 issue 明确要求时执行。
 8. **禁止修改 issue 文件**——issue 是可重跑任务定义，不记录本次运行状态。
 9. 完成后用工具 append done 与 files（禁止手写 status 行；files 与 done 同时写入是原子的）：
    ```bash
    node {{META_DIR}}/bin/status_manager.js append done --issue NNN \
         --files "<文件列表>" --workspace-dir {{WORKSPACE}} --json
    ```
-   文件列表格式：`路径(变更类型)` 用逗号分隔，变更类型为 `new` / `mod` / `del`。
+   文件列表格式：`路径(变更类型)` 用逗号分隔，变更类型为 `new` / `mod` / `del`；路径必须是仓库根相对路径，用户项目文件统一写成 `workspace/...`。
 10. **退出**。
 
 ## 异常处理

@@ -137,24 +137,13 @@ run_prd() {
   rm -rf "$WORKSPACE"
   mkdir -p "$DOCS_DIR" "$LOG_DIR"
 
-  echo "💡 一句话告诉 Issuely 你想做什么。PRD agent 会接管对话。"
-  echo "----------------------------------------------------------"
-  read -p "👉 一句话需求：" RAW_NEED
-  if [ -z "$RAW_NEED" ]; then
-    echo "[Issuely] 需求为空。" >&2
-    exit 1
-  fi
-
-  RAW_NEED="$RAW_NEED" \
   node "$ISSUELY_META_DIR/lib/config.cjs" write \
        --project-dir "$ISSUELY_PROJECT_DIR" \
-       --workspace "$(basename "$WORKSPACE")" \
-       --original-requirement-from-env RAW_NEED >/dev/null
+       --workspace "$(basename "$WORKSPACE")" >/dev/null
 
   local message
-  message="$(RAW_NEED="$RAW_NEED" node - <<'BUILD_MSG'
-process.stdout.write(`用户一句话需求：
-${process.env.RAW_NEED}
+  message="$(node - <<'BUILD_MSG'
+process.stdout.write(`请启动 PRD 收集会话。
 
 环境上下文：
 - 当前工作目录是项目根
@@ -162,7 +151,15 @@ ${process.env.RAW_NEED}
 - workspace 路径：workspace
 - PRD 输出：workspace/docs/prd.md
 
-请按 system-prompt 工作流多轮澄清。PRD 完成后提示用户直接退出当前 pi 会话即可。`);
+请先向用户问好，并请用户描述想做的产品或需求。
+说明用户可以：
+- 直接粘贴多行需求、业务说明或会议记录。
+- 提供已有文件路径作为参考，你可以读取相关文件。
+- 只给一个模糊方向，之后你一步步引导讨论。
+
+如果用户需求不明确，先讨论和追问；如果用户表述相对确定，只澄清影响 PRD 的不明之处。
+技术栈方面，如果用户没有特别说明，请基于你最熟悉、最能稳定交付的方案给出建议并在预览中确认。
+PRD 完成后提示用户直接退出当前 pi 会话即可。`);
 BUILD_MSG
 )"
 

@@ -36,7 +36,7 @@
 5. 如果 JSON 含 `gap`：必须先**读取** `gap.issue.file` 这个 issue 文件，核对是否存在前序漏号。Review 不应忽略 gap 信息；若 gap 无明确依赖阻塞，应在备注中提示 dev 优先补 gap。
 6. 本轮 review 的主目标只能是 JSON 给出的 `issue`；禁止提前实现其它 issue 的新功能或产物。若当前 issue 的正确性依赖公共代码、已完成依赖代码或旧调用方调整，可以检查并修复这些支撑代码，但必须记录到 memo。
 7. JSON 中的 `files` 字段是 review 的第一定位线索；这些文件必须优先检查；若 dev 做了必要联动修改，也要检查 memo 是否记录原因、影响范围和验证命令。
-8. 在 `{{WORKSPACE}}/issues/` 中找到并完整阅读对应 issue 文件，重点关注 `## 目标` / `## 完成标准` / `## 检查方法` / `## 输出 / 产物`。
+8. 在 `{{WORKSPACE}}/issues/` 中找到并完整阅读对应 issue 文件，重点关注 `## 目标` / `## 输出 / 产物` / `## 集成要求` / `## 检查方法` / `## 完成标准`。
 
 ## Review 流程
 
@@ -51,19 +51,22 @@ node {{META_DIR}}/bin/status_manager.js append review-begin --issue NNN --worksp
 - `## 输出 / 产物` 中列出的每个文件是否真实存在。
 
 **2. 功能实现**
-- 对照 `## 目标` 逐条核查代码是否完整实现，有无明显遗漏或错误逻辑。
+- 对照 `## 目标` 和 `## 集成要求` 逐条核查代码是否完整实现、是否接入指定流程或消费方，有无明显遗漏或错误逻辑。
 - 审查前先参考已有相似实现与 `memo.md`（尤其经验索引、`candidate-common` / `extracted-common`），判断 dev 是否重复造轮子或忽略已有模式。
 - 如果当前 issue 命中某个经验文档，检查 dev 是否遵循其中的流程、参考信息位置、代码输出位置、注意事项与常见问题。
 
 **3. 执行验证命令**
-- 按 `## 检查方法` 执行验证命令，确认实际输出符合 `## 完成标准`。
+- 按 `## 检查方法` 分层执行验证命令，确认实际输出符合 `## 完成标准`。
+- 默认优先复核当前 issue 的 `related check`。
+- 如果 Dev 已刚刚通过 `static / compile check` 或 `full verification`，且 Review 没有修改相关文件、没有发现构建/类型/集成风险，不要重复运行昂贵命令。
+- 只有在 issue 类型要求、Review 修改了相关文件、或发现风险时，才运行 `static / compile check`、`integration check` 或 `full verification`。
 - 测试成功时输出必须极简（一行 `passed` 或同等汇总），不要把全量通过日志灌进上下文；只有失败才保留详细错误。
 - 全量测试**最多跑一次**；需要分析输出时，把一次输出存到临时文件再 grep，不要重复执行全量测试。
 
 **4. 测试充分性**
 - 检查是否覆盖正常路径、边界条件和异常路径。
-- 有明显测试盲区时，补充测试用例并确保通过。
-- 必跑当前 issue 相关测试和被修改模块的直接相关测试；全量回归仍然最多一次；全量失败时只修复本 issue 新引入的问题，修复后优先重跑相关测试。
+- 有明显测试盲区时，补充测试用例并确保通过；尤其要覆盖 issue 声明的集成点，而不只是单个函数或组件。
+- 必跑当前 issue 相关测试和被修改模块的直接相关测试；全量回归 / full verification 仍然最多一次，且仅在触发条件满足时运行；全量失败时只修复本 issue 新引入的问题，修复后优先重跑相关测试。
 
 **5. Bug 修复**
 - 发现的 bug 或不符合完成标准的地方，**直接修复代码**，重新执行验证命令确认通过。
@@ -89,7 +92,7 @@ node {{META_DIR}}/bin/status_manager.js append review-begin --issue NNN --worksp
   node {{META_DIR}}/bin/status_manager.js append reviewed --issue NNN \
        --message "<简要描述>" --files "<文件列表>" --workspace-dir {{WORKSPACE}} --json
   ```
-  文件列表格式与 dev 一致：`路径(new|mod|del)`。未修改任何文件时不传 `--message` / `--files`。
+  文件列表格式与 dev 一致：`路径(new|mod|del)`；路径必须是仓库根相对路径，用户项目文件统一写成 `workspace/...`。未修改任何文件时不传 `--message` / `--files`。
 - 是否 touch `{{WORKSPACE}}/review.done` 只由下一轮 status_manager `next` 返回的 `touch-review-done` 决定；本轮不要自行遍历 status 判断。
 
 ## 备忘与经验文档（memo.md / memo/*.md）
