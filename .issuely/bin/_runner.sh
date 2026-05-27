@@ -50,16 +50,17 @@ const globalRules = fs.existsSync(process.env.AGENT_RULES_FILE)
   : "";
 const roleTpl = fs.readFileSync(process.env.TPL_FILE, "utf8");
 const tpl = globalRules ? `${globalRules}\n\n---\n\n${roleTpl}` : roleTpl;
+const workspace = process.env.WORKSPACE || process.env.WORKSPACE_REL || "workspace";
 const map = {
-  WORKSPACE:    process.env.WORKSPACE_REL || "workspace",
-  META_DIR:     process.env.META_DIR_REF || ".issuely",
-  ISSUES_DIR:   process.env.ISSUES_DIR_REL || `${process.env.WORKSPACE_REL || "workspace"}/issues`,
-  DOCS_DIR:     process.env.DOCS_DIR_REL || `${process.env.WORKSPACE_REL || "workspace"}/docs`,
-  STATUS_PATH:  process.env.STATUS_PATH_REL || `${process.env.WORKSPACE_REL || "workspace"}/status.md`,
-  MEMO_PATH:    process.env.MEMO_PATH_REL || `${process.env.WORKSPACE_REL || "workspace"}/memo.md`,
-  LOG_DIR:      process.env.LOG_DIR_REL || `${process.env.WORKSPACE_REL || "workspace"}/logs`,
-  DEV_DONE:     process.env.DEV_DONE_REL || `${process.env.WORKSPACE_REL || "workspace"}/dev.done`,
-  REVIEW_DONE:  process.env.REVIEW_DONE_REL || `${process.env.WORKSPACE_REL || "workspace"}/review.done`,
+  WORKSPACE:    workspace,
+  META_DIR:     process.env.META_DIR_REF || process.env.META_DIR || ".issuely",
+  ISSUES_DIR:   process.env.ISSUES_DIR || `${workspace}/issues`,
+  DOCS_DIR:     process.env.DOCS_DIR || `${workspace}/docs`,
+  STATUS_PATH:  process.env.STATUS_PATH || `${workspace}/status.md`,
+  MEMO_PATH:    process.env.MEMO_PATH || `${workspace}/memo.md`,
+  LOG_DIR:      process.env.LOG_DIR || `${workspace}/logs`,
+  DEV_DONE:     process.env.DEV_DONE || `${workspace}/dev.done`,
+  REVIEW_DONE:  process.env.REVIEW_DONE || `${workspace}/review.done`,
   PROJECT_NAME: process.env.PROJECT_NAME || "",
   LANGUAGE:     process.env.LANGUAGE     || "",
   REFINE_ISSUE_FILE:   process.env.REFINE_ISSUE_FILE   || "",
@@ -134,6 +135,11 @@ ensure_agent_available() {
   fi
 }
 
+render_agent_trace() {
+  local agent="$1"
+  node "$META_DIR/bin/trace_renderer.js" --agent "$agent"
+}
+
 run_pi_prompt() {
   local prompt_text="$1" tag="$2" model="$3" thinking="$4"
   local args=(--no-session)
@@ -141,22 +147,8 @@ run_pi_prompt() {
   [ -n "$model" ] && args+=(--model "$model")
   [ -n "$thinking" ] && args+=(--thinking "$thinking")
   if [ "${PI_TRACE:-1}" = "1" ]; then
-    echo "[$tag] pi trace: on (--mode json, filtered)"
-    if command -v jq >/dev/null 2>&1; then
-      (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" --mode json -p "$prompt_text") | jq --unbuffered -r '
-        if .type == "turn_start" then "[turn:start]"
-        elif .type == "turn_end" then "[turn:end]"
-        elif .type == "agent_end" then "[agent:end]"
-        elif .type == "tool_execution_start" then "[tool:start] \(.toolName) \((.args // {}) | tojson)"
-        elif .type == "tool_execution_update" then ((.partialResult.content // [])[]? | select(.type == "text") | "[tool:out] " + (.text | gsub("\\n$"; "")))
-        elif .type == "tool_execution_end" then "[tool:end] \(.toolName) error=\(.isError)"
-        elif .type == "message_update" and .assistantMessageEvent.type == "text_delta" then .assistantMessageEvent.delta
-        else empty end
-      ' | timestamp_stream
-    else
-      echo "[$tag] jq not found; falling back to raw stream"
-      (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" -p "$prompt_text")
-    fi
+    echo "[$tag] pi trace: on (--mode json, rendered)"
+    (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" --mode json -p "$prompt_text") | render_agent_trace pi
   else
     (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" -p "$prompt_text")
   fi
@@ -168,16 +160,26 @@ run_omp_prompt() {
   [ -n "${OMP_TOOLS:-}" ] && args+=(--tools "$OMP_TOOLS")
   [ -n "$model" ] && args+=(--model "$model")
   [ -n "$thinking" ] && args+=(--thinking "$thinking")
-  (cd "$ISSUELY_PROJECT_DIR" && omp "${args[@]}" -p "$prompt_text")
+  if [ "${OMP_TRACE:-1}" = "1" ]; then
+    echo "[omp] trace: on (--mode json, rendered)"
+    (cd "$ISSUELY_PROJECT_DIR" && omp "${args[@]}" --mode json -p "$prompt_text") | render_agent_trace omp
+  else
+    (cd "$ISSUELY_PROJECT_DIR" && omp "${args[@]}" -p "$prompt_text")
+  fi
 }
 
 run_claude_prompt() {
   local prompt_text="$1" model="$2" thinking="$3"
-  local args=(--print --output-format text --no-session-persistence)
+  local args=(--print --no-session-persistence)
   [ -n "$model" ] && args+=(--model "$model")
   [ -n "$thinking" ] && args+=(--effort "$thinking")
   [ -n "${CLAUDE_PERMISSION_MODE:-}" ] && args+=(--permission-mode "$CLAUDE_PERMISSION_MODE")
-  (cd "$ISSUELY_PROJECT_DIR" && claude "${args[@]}" "$prompt_text")
+  if [ "${CLAUDE_TRACE:-1}" = "1" ]; then
+    echo "[claude] trace: on (--output-format stream-json, rendered)"
+    (cd "$ISSUELY_PROJECT_DIR" && claude "${args[@]}" --output-format stream-json --verbose --include-partial-messages "$prompt_text") | render_agent_trace claude
+  else
+    (cd "$ISSUELY_PROJECT_DIR" && claude "${args[@]}" --output-format text "$prompt_text")
+  fi
 }
 
 run_codex_prompt() {
@@ -187,7 +189,12 @@ run_codex_prompt() {
   [ -n "$thinking" ] && args+=(-c "model_reasoning_effort=\"$thinking\"")
   [ -n "${CODEX_SANDBOX:-}" ] && args+=(--sandbox "$CODEX_SANDBOX")
   [ -n "${CODEX_APPROVAL:-}" ] && args+=(--ask-for-approval "$CODEX_APPROVAL")
-  (cd "$ISSUELY_PROJECT_DIR" && printf '%s' "$prompt_text" | codex "${args[@]}" -)
+  if [ "${CODEX_TRACE:-1}" = "1" ]; then
+    echo "[codex] trace: on (--json, rendered)"
+    (cd "$ISSUELY_PROJECT_DIR" && codex "${args[@]}" --json "$prompt_text") | render_agent_trace codex
+  else
+    (cd "$ISSUELY_PROJECT_DIR" && codex "${args[@]}" "$prompt_text")
+  fi
 }
 
 run_role_prompt() {

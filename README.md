@@ -109,6 +109,8 @@ env overrides > ./config.json > ~/.issuely/config.json > built-in defaults
 
 默认情况下，Issuely 只注入 role、model、thinking / effort，不主动指定工具白名单、sandbox 或 approval 策略。例外：Claude 在 `--print` 非交互模式下无法弹出写入授权，Issuely 默认使用 `--permission-mode auto`，否则 dev agent 会停在“请授权写文件”。如需覆盖，可在 `agents.claude.permissionMode` 中显式设置。
 
+开发 / review 流水线默认开启结构化流式渲染：`pi --mode json`、`omp --mode json`、`claude --output-format stream-json`、`codex exec --json` 会被统一解析成类似 shellish 的终端输出，包括工具开始、工具结果摘要和 assistant 文本。可通过 `agents.<agent>.trace: 0` 或环境变量 `PI_TRACE=0` / `OMP_TRACE=0` / `CLAUDE_TRACE=0` / `CODEX_TRACE=0` 关闭。
+
 ### 全局配置示例
 
 ```json
@@ -156,12 +158,12 @@ env overrides > ./config.json > ~/.issuely/config.json > built-in defaults
 
 ## 支持的 Agent
 
-| Agent | 模型参数 | thinking / effort 参数 |
-|---|---|---|
-| `pi` | `--model` | `--thinking` |
-| `omp` | `--model` | `--thinking` |
-| `claude` | `--model` | `--effort` |
-| `codex` | `--model` | `-c model_reasoning_effort=...` |
+| Agent | 模型参数 | thinking / effort 参数 | 流式解析 |
+|---|---|---|---|
+| `pi` | `--model` | `--thinking` | `--mode json` |
+| `omp` | `--model` | `--thinking` | `--mode json` |
+| `claude` | `--model` | `--effort` | `--output-format stream-json` |
+| `codex` | `--model` | `-c model_reasoning_effort=...` | `exec --json` |
 
 ## 框架自测
 

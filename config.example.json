@@ -26,14 +26,17 @@
       "trace": 1
     },
     "omp": {
-      "tools": ""
+      "tools": "",
+      "trace": 1
     },
     "claude": {
-      "permissionMode": "auto"
+      "permissionMode": "auto",
+      "trace": 1
     },
     "codex": {
       "sandbox": "",
-      "approval": ""
+      "approval": "",
+      "trace": 1
     }
   }
 }

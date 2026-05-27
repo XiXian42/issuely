@@ -12,9 +12,9 @@ const DEFAULTS = Object.freeze({
   }),
   agents: Object.freeze({
     pi: Object.freeze({ tools: "", trace: 1 }),
-    omp: Object.freeze({ tools: "" }),
-    claude: Object.freeze({ permissionMode: "auto" }),
-    codex: Object.freeze({ sandbox: "", approval: "" })
+    omp: Object.freeze({ tools: "", trace: 1 }),
+    claude: Object.freeze({ permissionMode: "auto", trace: 1 }),
+    codex: Object.freeze({ sandbox: "", approval: "", trace: 1 })
   })
 });
 
@@ -138,6 +138,7 @@ function normalizeAgentConfig(name, value) {
     case "omp": {
       const out = {};
       if (value.tools !== undefined) out.tools = Array.isArray(value.tools) ? value.tools.join(",") : String(value.tools || "");
+      if (value.trace !== undefined) out.trace = Number(value.trace);
       return out;
     }
     case "claude": {
@@ -146,12 +147,14 @@ function normalizeAgentConfig(name, value) {
         const permissionMode = value.permissionMode == null ? "" : String(value.permissionMode).trim();
         if (permissionMode) out.permissionMode = permissionMode;
       }
+      if (value.trace !== undefined) out.trace = Number(value.trace);
       return out;
     }
     case "codex": {
       const out = {};
       if (value.sandbox !== undefined) out.sandbox = value.sandbox == null ? null : String(value.sandbox);
       if (value.approval !== undefined) out.approval = value.approval == null ? null : String(value.approval);
+      if (value.trace !== undefined) out.trace = Number(value.trace);
       return out;
     }
     default:
@@ -219,8 +222,10 @@ function normalizeRoles(roles) {
 function normalizeAgents(agents) {
   const defaults = clone(DEFAULTS.agents);
   const merged = deepMerge(defaults, agents || {});
-  if (merged.pi.trace == null || Number.isNaN(Number(merged.pi.trace))) merged.pi.trace = defaults.pi.trace;
-  merged.pi.trace = Number(merged.pi.trace);
+  for (const agent of ["pi", "omp", "claude", "codex"]) {
+    if (merged[agent].trace == null || Number.isNaN(Number(merged[agent].trace))) merged[agent].trace = defaults[agent].trace;
+    merged[agent].trace = Number(merged[agent].trace);
+  }
   if (merged.pi.tools == null) merged.pi.tools = "";
   if (merged.omp.tools == null) merged.omp.tools = "";
   return merged;
@@ -252,9 +257,8 @@ function loadConfig(opts = {}) {
   }
   metaDir = realpath(metaDir);
 
-  const metaDirRef = fs.existsSync(path.join(projectDir, ".issuely"))
-    ? ".issuely"
-    : relativeToProject(projectDir, metaDir);
+  const hasProjectMetaDir = fs.existsSync(path.join(projectDir, ".issuely"));
+  const metaDirRef = hasProjectMetaDir ? ".issuely" : metaDir;
 
   const roles = normalizeRoles(merged.roles);
   const agents = normalizeAgents(merged.agents);
@@ -386,11 +390,14 @@ function toShellEnv(view) {
     `PI_TOOLS=${sq(view.agents.pi.tools || "")}`,
     `PI_TRACE=${sq(view.agents.pi.trace)}`,
     `OMP_TOOLS=${sq(view.agents.omp.tools || "")}`,
+    `OMP_TRACE=${sq(view.agents.omp.trace)}`,
     `CLAUDE_PERMISSION_MODE=${sq(view.agents.claude.permissionMode || "")}`,
+    `CLAUDE_TRACE=${sq(view.agents.claude.trace)}`,
     `CODEX_SANDBOX=${sq(view.agents.codex.sandbox || "")}`,
-    `CODEX_APPROVAL=${sq(view.agents.codex.approval || "")}`
+    `CODEX_APPROVAL=${sq(view.agents.codex.approval || "")}`,
+    `CODEX_TRACE=${sq(view.agents.codex.trace)}`
   ];
-  return lines.join("\n") + "\nexport ISSUELY_PROJECT_DIR ISSUELY_HOME ISSUELY_GLOBAL_CONFIG META_DIR META_DIR_REF PROJECT_NAME LANGUAGE WORKSPACE WORKSPACE_REL ISSUES_DIR ISSUES_DIR_REL DOCS_DIR DOCS_DIR_REL STATUS_PATH STATUS_PATH_REL MEMO_PATH MEMO_PATH_REL DEV_DONE DEV_DONE_REL REVIEW_DONE REVIEW_DONE_REL LOG_DIR LOG_DIR_REL PLANNER_AGENT PLANNER_MODEL PLANNER_THINKING DEV_AGENT DEV_MODEL DEV_THINKING REVIEW_AGENT REVIEW_MODEL REVIEW_THINKING PI_TOOLS PI_TRACE OMP_TOOLS CLAUDE_PERMISSION_MODE CODEX_SANDBOX CODEX_APPROVAL\n";
+  return lines.join("\n") + "\nexport ISSUELY_PROJECT_DIR ISSUELY_HOME ISSUELY_GLOBAL_CONFIG META_DIR META_DIR_REF PROJECT_NAME LANGUAGE WORKSPACE WORKSPACE_REL ISSUES_DIR ISSUES_DIR_REL DOCS_DIR DOCS_DIR_REL STATUS_PATH STATUS_PATH_REL MEMO_PATH MEMO_PATH_REL DEV_DONE DEV_DONE_REL REVIEW_DONE REVIEW_DONE_REL LOG_DIR LOG_DIR_REL PLANNER_AGENT PLANNER_MODEL PLANNER_THINKING DEV_AGENT DEV_MODEL DEV_THINKING REVIEW_AGENT REVIEW_MODEL REVIEW_THINKING PI_TOOLS PI_TRACE OMP_TOOLS OMP_TRACE CLAUDE_PERMISSION_MODE CLAUDE_TRACE CODEX_SANDBOX CODEX_APPROVAL CODEX_TRACE\n";
 }
 
 function cli(argv) {

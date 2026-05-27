@@ -335,9 +335,9 @@ const config = {
   },
   agents: {
     pi: { tools: "", trace: 1 },
-    omp: { tools: "" },
-    claude: { permissionMode: "auto" },
-    codex: { sandbox: "", approval: "" }
+    omp: { tools: "", trace: 1 },
+    claude: { permissionMode: "auto", trace: 1 },
+    codex: { sandbox: "", approval: "", trace: 1 }
   }
 };
 process.stdout.write(JSON.stringify(config));

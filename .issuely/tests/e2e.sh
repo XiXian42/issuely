@@ -238,6 +238,12 @@ note "2. .issuely as symlink (global share)"
 out="$(ISSUELY_PROJECT_DIR="$PROJ1" node "$META_SRC/lib/config.cjs" print-shell)"
 echo "$out" | grep -q "META_DIR='$META_SRC'" && ok "META_DIR resolves through symlink" \
   || ng "META_DIR resolution: $(echo "$out" | grep META_DIR)"
+PROJ_GLOBAL_META="$TMP_ROOT/proj-global-meta"
+mkdir -p "$PROJ_GLOBAL_META"
+echo '{"workspace":"workspace"}' > "$PROJ_GLOBAL_META/config.json"
+out="$(ISSUELY_PROJECT_DIR="$PROJ_GLOBAL_META" ISSUELY_META_DIR="$META_SRC" node "$META_SRC/lib/config.cjs" print-shell)"
+echo "$out" | grep -q "META_DIR_REF='$META_SRC'" && ok "global META_DIR_REF stays absolute" \
+  || ng "global META_DIR_REF should be absolute: $(echo "$out" | grep META_DIR_REF)"
 WRAPPER_OUT="$(cd "$PROJ1" && HOME="$GLOBAL_HOME" ISSUELY_META_DIR="$META_SRC" "$REPO_ROOT/bin/issuely" status)"
 if echo "$WRAPPER_OUT" | grep -q "global config :" && echo "$WRAPPER_OUT" | grep -q "review-model"; then
   ok "issuely status shows merged role config"
@@ -349,6 +355,9 @@ out="$(ISSUELY_PROJECT_DIR="$PROJ_AGENT_FLAGS" node "$META_SRC/lib/config.cjs" p
 echo "$out" | grep -q "CLAUDE_PERMISSION_MODE='auto'" && ok "Claude permission mode defaults auto" || ng "Claude permission mode should default auto"
 echo "$out" | grep -q "CODEX_SANDBOX=''" && ok "Codex sandbox defaults empty" || ng "Codex sandbox should default empty"
 echo "$out" | grep -q "CODEX_APPROVAL=''" && ok "Codex approval defaults empty" || ng "Codex approval should default empty"
+echo "$out" | grep -q "CLAUDE_TRACE='1'" && ok "Claude trace defaults on" || ng "Claude trace should default on"
+echo "$out" | grep -q "OMP_TRACE='1'" && ok "OMP trace defaults on" || ng "OMP trace should default on"
+echo "$out" | grep -q "CODEX_TRACE='1'" && ok "Codex trace defaults on" || ng "Codex trace should default on"
 
 FAKE_CLAUDE_BIN="$TMP_ROOT/fake-claude-bin"
 mkdir -p "$FAKE_CLAUDE_BIN"
@@ -375,6 +384,14 @@ if grep -A1 -- "--permission-mode" "$FAKE_CLAUDE_LOG" | grep -q "auto"; then
 else
   ng "Claude default invocation should pass --permission-mode auto"
 fi
+if grep -q -- "--output-format" "$FAKE_CLAUDE_LOG" \
+   && grep -q -- "stream-json" "$FAKE_CLAUDE_LOG" \
+   && grep -q -- "--include-partial-messages" "$FAKE_CLAUDE_LOG"; then
+  ok "Claude default invocation uses partial stream-json trace"
+else
+  ng "Claude default invocation should use partial stream-json trace"
+fi
+
 
 cat > "$PROJ_AGENT_FLAGS/config.json" <<'JSON'
 {
@@ -405,6 +422,95 @@ else
   ng "Claude explicit permission mode missing"
 fi
 
+TRACE_SAMPLE="$TMP_ROOT/trace-sample.out"
+printf '%s\n' \
+  '{"type":"stream_event","event":{"type":"message_start"}}' \
+  '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"he"}}}' \
+  '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"llo"}}}' \
+  '{"type":"stream_event","event":{"type":"message_stop"}}' \
+  '{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}' \
+  | NO_COLOR=1 node "$META_SRC/bin/trace_renderer.js" --agent claude > "$TRACE_SAMPLE"
+if grep -q '^  hello$' "$TRACE_SAMPLE" && [ "$(grep -c '^  hello$' "$TRACE_SAMPLE")" = "1" ]; then
+  ok "Claude trace renderer streams text without duplicate final message"
+else
+  ng "Claude trace renderer should stream text once"
+  cat "$TRACE_SAMPLE"
+fi
+
+printf '%s\n' \
+  '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"ok"}}' \
+  '{"type":"agent_end","messages":[{"role":"user","content":[{"type":"text","text":"prompt"}]}]}' \
+  | NO_COLOR=1 node "$META_SRC/bin/trace_renderer.js" --agent omp > "$TRACE_SAMPLE"
+if grep -q '^  ok$' "$TRACE_SAMPLE" && ! grep -q '"messages"' "$TRACE_SAMPLE"; then
+  ok "OMP trace renderer suppresses final transcript JSON"
+else
+  ng "OMP trace renderer should suppress final transcript JSON"
+  cat "$TRACE_SAMPLE"
+fi
+
+printf '%s\n' \
+  '{"type":"turn.started"}' \
+  '{"type":"item.started","item":{"id":"1","type":"command_execution","command":"npm test"}}' \
+  '{"type":"item.completed","item":{"id":"1","type":"command_execution","exit_code":0,"aggregated_output":"passed\n"}}' \
+  '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}' \
+  '{"type":"turn.completed"}' \
+  | NO_COLOR=1 node "$META_SRC/bin/trace_renderer.js" --agent codex > "$TRACE_SAMPLE"
+if grep -q '⚙  bash  npm test' "$TRACE_SAMPLE" \
+   && grep -q '✓  passed' "$TRACE_SAMPLE" \
+   && grep -q '^  done$' "$TRACE_SAMPLE"; then
+  ok "Codex trace renderer shows command, result, and text"
+else
+  ng "Codex trace renderer should show command, result, and text"
+  cat "$TRACE_SAMPLE"
+fi
+
+FAKE_OMP_BIN="$TMP_ROOT/fake-omp-bin"
+mkdir -p "$FAKE_OMP_BIN"
+cat > "$FAKE_OMP_BIN/omp" <<'FAKE_OMP'
+#!/usr/bin/env bash
+LOG="${ISSUELY_FAKE_LOG:-/tmp/issuely-fake-omp.log}"
+{
+  echo "--- omp call ---"
+  for a in "$@"; do printf '  arg: %s\n' "$a"; done
+} >> "$LOG"
+printf '%s\n' \
+  '{"type":"turn_start"}' \
+  '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"omp ok"}}' \
+  '{"type":"agent_end"}'
+exit 0
+FAKE_OMP
+chmod +x "$FAKE_OMP_BIN/omp"
+
+cat > "$PROJ_AGENT_FLAGS/config.json" <<'JSON'
+{
+  "workspace": "workspace",
+  "roles": {
+    "dev": {
+      "agent": "omp",
+      "model": null,
+      "thinking": null
+    }
+  }
+}
+JSON
+FAKE_OMP_LOG="$TMP_ROOT/fake-omp.log"
+OMP_OUT="$TMP_ROOT/fake-omp.out"
+: > "$FAKE_OMP_LOG"
+ISSUELY_FAKE_LOG="$FAKE_OMP_LOG" \
+ISSUELY_PROJECT_DIR="$PROJ_AGENT_FLAGS" \
+PATH="$FAKE_OMP_BIN:$PATH" \
+"$META_SRC/bin/run_dev.sh" >"$OMP_OUT" 2>&1 || true
+
+if grep -q -- "--mode" "$FAKE_OMP_LOG" \
+   && grep -q -- "json" "$FAKE_OMP_LOG" \
+   && grep -q '^  omp ok$' "$OMP_OUT"; then
+  ok "OMP default invocation uses json trace renderer"
+else
+  ng "OMP default invocation should use json trace renderer"
+  cat "$FAKE_OMP_LOG"
+  cat "$OMP_OUT"
+fi
+
 PROJ_CUSTOM="$TMP_ROOT/proj-custom-workspace"
 mkdir -p "$PROJ_CUSTOM/ws/issues"
 ln -s "$META_SRC" "$PROJ_CUSTOM/.issuely"
@@ -432,10 +538,10 @@ PATH="$FAKE_BIN:$PATH" \
 "$META_SRC/bin/run_dev.sh" >/dev/null 2>&1 || true
 assert_file_exists "$PROJ_CUSTOM/ws/status.md"
 assert_file_not_exists "$PROJ_CUSTOM/workspace/status.md"
-if grep -q -- '--workspace-dir "ws"' "$FAKE_LOG"; then
-  ok "prompt renders custom workspace path"
+if grep -q -- "--workspace-dir \"$PROJ_CUSTOM/ws\"" "$FAKE_LOG"; then
+  ok "prompt renders absolute custom workspace path"
 else
-  ng "prompt should render custom workspace path"
+  ng "prompt should render absolute custom workspace path"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────
