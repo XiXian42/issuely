@@ -218,7 +218,8 @@ BUILD_MSG
 
   echo
   echo "✅ PRD 已生成：$DOCS_DIR_REL/prd.md"
-  echo "下一步：issuely issue"
+  echo "下一步："
+  echo "  $ issuely issue"
 }
 
 run_issue() {
@@ -279,9 +280,13 @@ BUILD_MSG
   echo
   echo "✅ Issue 已生成：$ISSUES_DIR_REL/（共 $issue_count 个）"
   if [ "${complex_count:-0}" -gt 0 ]; then
-    echo "检测到 $complex_count 个复杂 issue 标记为 [complex-issue]。建议开发前运行：issuely issue refine"
+    echo "检测到 $complex_count 个复杂 issue 标记为 [complex-issue]。"
+    echo "建议下一步："
+    echo "  $ issuely issue refine"
+  else
+    echo "下一步："
+    echo "  $ issuely dev"
   fi
-  echo "下一步：issuely dev"
 }
 
 run_issue_refine() {

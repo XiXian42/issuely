@@ -77,7 +77,9 @@ node "{{META_DIR}}/lib/config.cjs" write \
 ```text
 PRD 已完成：{{DOCS_DIR}}/prd.md
 请直接退出当前 agent 会话即可。
-下一步如需拆 issue，回到终端运行：issuely issue
+
+下一步：
+$ issuely issue
 ```
 
 此后不要再调用任何工具。用户如果继续发消息，只重复这个退出提示。

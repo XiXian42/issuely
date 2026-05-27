@@ -1,7 +1,19 @@
 # Issuely
 
-> Issue-driven Agentic Development —— 用 issue 作为最小可交付单元，
-> 让 planner / dev / review 多 agent 接力，把一个想法推进到可交付项目。
+> 用极简的方式，推进一个本来要花数十小时才能拆清、排期、开发、审查、验收的复杂工程任务。
+
+Issuely 会把一件复杂工作压成一条可持续推进的流水线：
+
+- 先把模糊想法聊成 PRD
+- 再自动拆成有依赖顺序的 issue 包
+- 最后由 planner / dev / review 多 agent 按 issue 接力推进
+
+它适合：
+
+- 从 0 到 1 的新项目
+- 大型重构
+- 跨语言 port / migration
+- 一条功能链路涉及多人天工作量的复杂任务
 
 ## 安装
 
@@ -13,34 +25,50 @@ curl -fsSL https://raw.githubusercontent.com/XiXian42/issuely/main/install.sh | 
 
 安装过程会：
 
-1. 安装 `issuely` 命令到 `~/.local/bin/issuely`
-2. 引导你选择 planner / dev / review 使用的 agent、模型和 thinking / effort
-3. 把全局默认配置写入 `~/.issuely/config.json`
+1. 安装 `issuely` 命令
+2. 检测你本机已有的 agent
+3. 让你为 `planner / dev / review` 分别选择 agent、模型和 thinking / effort
+4. 把默认配置写入 `~/.issuely/config.json`
 
 前提：系统里至少已经安装一个支持的 agent。
 
-## 支持的 Agent
-
-| Agent | 模型参数 | thinking / effort 参数 |
-|---|---|---|
-| `pi` | `--model` | `--thinking` |
-| `omp` | `--model` | `--thinking` |
-| `claude` | `--model` | `--effort` |
-| `codex` | `--model` | `-c model_reasoning_effort=...` |
-
-## 使用
-
-在你想创建项目的目录执行：
+## 极简使用示例
 
 ```bash
-mkdir my-project
-cd my-project
+mkdir html-to-pptx-rs
+cd html-to-pptx-rs
+
 issuely prd
+# 然后告诉它：
+# “我要把一个 JS 的 HTML→PPTX 工具完整 port 到 Rust，保留 CLI、HTTP 服务和测试迁移。”
+
 issuely issue
 issuely dev
 ```
 
-常用命令：
+第一次你只需要记住这 3 个命令：
+
+- `issuely prd`
+- `issuely issue`
+- `issuely dev`
+
+## 运行后会得到什么
+
+```text
+./config.json                 项目配置
+./workspace/
+  docs/prd.md                 需求文档
+  docs/spec-project.md        工程规格
+  docs/coding-style.md        开发约束
+  issues/                     有序任务包
+  status.md                   进度状态机
+  memo.md                     项目记忆
+  logs/                       运行日志与验收报告
+```
+
+也就是说：你不是得到“一次回答”，而是得到一套可继续推进的项目工作区。
+
+## 常用命令
 
 ```bash
 issuely prd           # 收集 / 生成 PRD
@@ -52,24 +80,20 @@ issuely status        # 查看当前目录的有效配置与可用 agent
 issuely install-hooks # 为当前项目安装 git hooks
 ```
 
-> `issuely` 默认把“当前目录”当作项目根，请在项目根运行。
+## 配置
 
-## 配置层级
+Issuely 有两层配置：
 
-Issuely 现在有两层配置：
-
-1. **全局配置**：`~/.issuely/config.json`
-   - 放默认 agent / model / thinking / agent-specific runtime 选项
-2. **项目配置**：`./config.json`
-   - 放当前项目的 `workspace`、`projectName`、`language`，以及需要覆盖的 role 配置
+1. **全局默认配置**：`~/.issuely/config.json`
+2. **项目覆盖配置**：`./config.json`
 
 优先级：
 
 ```text
-env overrides > project config.json > ~/.issuely/config.json > built-in defaults
+env overrides > ./config.json > ~/.issuely/config.json > built-in defaults
 ```
 
-## 全局配置示例
+### 全局配置示例
 
 ```json
 {
@@ -90,27 +114,11 @@ env overrides > project config.json > ~/.issuely/config.json > built-in defaults
       "model": "sonnet",
       "thinking": "high"
     }
-  },
-  "agents": {
-    "pi": {
-      "tools": "",
-      "trace": 1
-    },
-    "omp": {
-      "tools": ""
-    },
-    "claude": {
-      "permissionMode": "dontAsk"
-    },
-    "codex": {
-      "sandbox": "workspace-write",
-      "approval": "never"
-    }
   }
 }
 ```
 
-## 项目配置示例
+### 项目配置示例
 
 ```json
 {
@@ -126,42 +134,25 @@ env overrides > project config.json > ~/.issuely/config.json > built-in defaults
 }
 ```
 
-## 目录约定
+## 支持的 Agent
 
-```text
-./config.json                    项目配置（项目级覆盖）
-./workspace/                     用户产物
-  docs/                          PRD / spec / coding-style / tracking docs
-  issues/                        有序任务包
-  src/, tests/, ...              项目代码
-  status.md                      进度状态机（由工具维护）
-  memo.md, memo/                 项目记忆与经验文档
-  logs/                          运行日志与验收报告
-```
+| Agent | 模型参数 | thinking / effort 参数 |
+|---|---|---|
+| `pi` | `--model` | `--thinking` |
+| `omp` | `--model` | `--thinking` |
+| `claude` | `--model` | `--effort` |
+| `codex` | `--model` | `-c model_reasoning_effort=...` |
 
-框架代码来自安装目录；项目里不再要求放置 `start.sh` 或 `.issuely` 软链。
-
-## 兼容模式
-
-如果你已经在旧项目里放了：
-
-- `./start.sh`
-- `./.issuely`
-
-它们仍可继续工作。`./start.sh` 仍是兼容入口；新推荐入口是 `issuely`。
-
-## 开发与测试
-
-框架仓库自测：
+## 框架自测
 
 ```bash
 .issuely/tests/e2e.sh
 ```
 
-覆盖内容包括：
+覆盖：
 
-- config 加载与路径解析
 - 全局配置 + 项目配置合并
-- `.issuely` 符号链接与全局安装路径
-- run_while 调度 + dev/review 串行推进
-- `issuely` 包装入口
+- 多 role 配置注入
+- `issuely` 入口
+- run_while 调度
+- dev / review 串行推进

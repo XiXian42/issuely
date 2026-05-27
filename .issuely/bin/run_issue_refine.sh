@@ -88,4 +88,5 @@ fi
 
 echo
 echo "✅ issue refine 已完成；所有 [complex-issue] 标记已清除。"
-echo "下一步：issuely dev"
+echo "下一步："
+echo "  $ issuely dev"
