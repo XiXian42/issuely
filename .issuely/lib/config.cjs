@@ -13,8 +13,8 @@ const DEFAULTS = Object.freeze({
   agents: Object.freeze({
     pi: Object.freeze({ tools: "", trace: 1 }),
     omp: Object.freeze({ tools: "" }),
-    claude: Object.freeze({ permissionMode: "dontAsk" }),
-    codex: Object.freeze({ sandbox: "workspace-write", approval: "never" })
+    claude: Object.freeze({ permissionMode: "" }),
+    codex: Object.freeze({ sandbox: "", approval: "" })
   })
 });
 

@@ -7,6 +7,7 @@
 #   - run_while 调度 + dev/review 串行 + dev.done/review.done 立标
 #   - .issuely 符号链接 (全局共享) 也能跑通
 #   - PI_TOOLS 可配置；空时 pi 命令不带 --tools
+#   - Claude / Codex 权限类参数默认不传，显式配置时才传
 
 set -u
 
@@ -19,6 +20,9 @@ TMP_ROOT_RAW="$(mktemp -d "${TMPDIR:-/tmp}/issuely-e2e.XXXXXX")"
 # realpath ：macOS 的 /tmp 本身就是符号链接，loader 会走 realpath，
 # 断言侧要跟它保持一致。
 TMP_ROOT="$(cd "$TMP_ROOT_RAW" && pwd -P)"
+TEST_HOME="$TMP_ROOT/home-empty"
+mkdir -p "$TEST_HOME"
+export HOME="$TEST_HOME"
 trap 'rm -rf "$TMP_ROOT_RAW"' EXIT
 
 note() { printf '\n=== %s ===\n' "$*"; }
@@ -307,6 +311,98 @@ else
   echo "----- fake-pi log -----"
   cat "$FAKE_LOG"
   echo "-----"
+fi
+
+# Claude / Codex 权限类参数默认空：不应改变 agent CLI 自己的默认行为
+PROJ_AGENT_FLAGS="$TMP_ROOT/proj-agent-flags"
+mkdir -p "$PROJ_AGENT_FLAGS/workspace/issues"
+ln -s "$META_SRC" "$PROJ_AGENT_FLAGS/.issuely"
+cat > "$PROJ_AGENT_FLAGS/workspace/issues/000-stub.md" <<'ISS'
+# Issue 000 — stub
+## 目标
+do nothing
+## 不做什么
+none
+## 输入 / 依赖
+none
+## 输出 / 产物
+src/x.txt(new)
+## 检查方法
+true
+## 完成标准
+passed
+ISS
+cat > "$PROJ_AGENT_FLAGS/config.json" <<'JSON'
+{
+  "workspace": "workspace",
+  "roles": {
+    "dev": {
+      "agent": "claude",
+      "model": null,
+      "thinking": null
+    }
+  }
+}
+JSON
+
+out="$(ISSUELY_PROJECT_DIR="$PROJ_AGENT_FLAGS" node "$META_SRC/lib/config.cjs" print-shell)"
+echo "$out" | grep -q "CLAUDE_PERMISSION_MODE=''" && ok "Claude permission mode defaults empty" || ng "Claude permission mode should default empty"
+echo "$out" | grep -q "CODEX_SANDBOX=''" && ok "Codex sandbox defaults empty" || ng "Codex sandbox should default empty"
+echo "$out" | grep -q "CODEX_APPROVAL=''" && ok "Codex approval defaults empty" || ng "Codex approval should default empty"
+
+FAKE_CLAUDE_BIN="$TMP_ROOT/fake-claude-bin"
+mkdir -p "$FAKE_CLAUDE_BIN"
+cat > "$FAKE_CLAUDE_BIN/claude" <<'FAKE_CLAUDE'
+#!/usr/bin/env bash
+LOG="${ISSUELY_FAKE_LOG:-/tmp/issuely-fake-claude.log}"
+{
+  echo "--- claude call ---"
+  for a in "$@"; do printf '  arg: %s\n' "$a"; done
+} >> "$LOG"
+exit 0
+FAKE_CLAUDE
+chmod +x "$FAKE_CLAUDE_BIN/claude"
+
+FAKE_CLAUDE_LOG="$TMP_ROOT/fake-claude.log"
+: > "$FAKE_CLAUDE_LOG"
+ISSUELY_FAKE_LOG="$FAKE_CLAUDE_LOG" \
+ISSUELY_PROJECT_DIR="$PROJ_AGENT_FLAGS" \
+PATH="$FAKE_CLAUDE_BIN:$PATH" \
+"$META_SRC/bin/run_dev.sh" >/dev/null 2>&1 || true
+
+if grep -q -- "--permission-mode" "$FAKE_CLAUDE_LOG"; then
+  ng "Claude default invocation should not pass --permission-mode"
+else
+  ok "Claude default invocation omits --permission-mode"
+fi
+
+cat > "$PROJ_AGENT_FLAGS/config.json" <<'JSON'
+{
+  "workspace": "workspace",
+  "roles": {
+    "dev": {
+      "agent": "claude",
+      "model": null,
+      "thinking": null
+    }
+  },
+  "agents": {
+    "claude": {
+      "permissionMode": "acceptEdits"
+    }
+  }
+}
+JSON
+: > "$FAKE_CLAUDE_LOG"
+ISSUELY_FAKE_LOG="$FAKE_CLAUDE_LOG" \
+ISSUELY_PROJECT_DIR="$PROJ_AGENT_FLAGS" \
+PATH="$FAKE_CLAUDE_BIN:$PATH" \
+"$META_SRC/bin/run_dev.sh" >/dev/null 2>&1 || true
+
+if grep -A1 -- "--permission-mode" "$FAKE_CLAUDE_LOG" | grep -q "acceptEdits"; then
+  ok "Claude explicit permission mode is passed"
+else
+  ng "Claude explicit permission mode missing"
 fi
 
 PROJ_CUSTOM="$TMP_ROOT/proj-custom-workspace"

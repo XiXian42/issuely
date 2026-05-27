@@ -29,11 +29,11 @@
       "tools": ""
     },
     "claude": {
-      "permissionMode": "dontAsk"
+      "permissionMode": ""
     },
     "codex": {
-      "sandbox": "workspace-write",
-      "approval": "never"
+      "sandbox": "",
+      "approval": ""
     }
   }
 }
