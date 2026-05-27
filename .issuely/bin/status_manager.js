@@ -571,6 +571,30 @@ function validateState(options = {}) {
 
   return { ok: problems.length === 0, problems, gaps: detectGaps(state), blocked: blockedSummaryFromState(state).blocked, counts: { issues: state.issues.length, statusRecords: state.status.records.length }, devDone: state.devDone, reviewDone: state.reviewDone };
 }
+function issuePreflight(options = {}) {
+  const state = loadState(options);
+  const problems = [];
+
+  if (!fs.existsSync(state.issuesDir)) {
+    problems.push({ type: "missing-issues-dir", file: path.basename(state.issuesDir), message: "issues directory does not exist" });
+  }
+  for (const name of state.invalidIssueFiles) {
+    problems.push({ type: "invalid-issue-file", file: name, message: "issue file must match NNNNNN-slug.md (legacy NNN is still readable)" });
+  }
+  if (state.issues.length === 0) {
+    problems.push({ type: "no-valid-issues", message: "no schedulable issue files found" });
+  }
+
+  return {
+    ok: problems.length === 0,
+    problems,
+    counts: {
+      issues: state.issues.length,
+      invalidIssueFiles: state.invalidIssueFiles.length
+    }
+  };
+}
+
 function blockedSummaryFromState(state) {
   const blocked = blockedEntries(state).map((entry) => ({
     issue: issueOut(entry.issue, state.issues),
@@ -618,6 +642,12 @@ function main(argv = process.argv.slice(2)) {
   if (command === "next") return print(nextPlan(options), Boolean(args.json));
   if (command === "append") return print(appendStatus(args._[1], options), Boolean(args.json));
   if (command === "blocked") return print(blockedSummary(options), Boolean(args.json));
+  if (command === "issue-preflight") {
+    const result = issuePreflight(options);
+    print(result, Boolean(args.json));
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
   if (command === "validate") {
     const result = validateState(options);
     print(result, Boolean(args.json));
@@ -629,6 +659,7 @@ function main(argv = process.argv.slice(2)) {
   console.error("       node status_manager.js append begin|done|review-begin|reviewed|review-fixed|blocked|unblocked|resolved-by --issue N [--resolved-by N] [--files ...] [--message ...] --workspace-dir <dir> [--json]");
   console.error("       node status_manager.js blocked --workspace-dir <dir> [--json]");
   console.error("       node status_manager.js validate --workspace-dir <dir> [--json]");
+  console.error("       node status_manager.js issue-preflight --workspace-dir <dir> [--json]");
   process.exitCode = 2;
 }
 
@@ -651,6 +682,7 @@ module.exports = {
   nextPlan,
   appendStatus,
   validateState,
+  issuePreflight,
   detectGaps,
   blockedSummary
 };

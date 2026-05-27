@@ -79,7 +79,7 @@ fi
 if ! node "$META_DIR/bin/status_manager.js" validate --workspace-dir "$WORKSPACE" --json > "$LOG_DIR/.validate.json" 2>&1; then
   echo "[run_issue_refine] issue 产物校验未通过："
   if command -v jq >/dev/null 2>&1; then
-    jq -r '.problems[]? | "  - \(.type): \(.message)"' "$LOG_DIR/.validate.json" || cat "$LOG_DIR/.validate.json"
+    jq -r 'def location: if .file then .file elif .issue then .issue elif .line then "line \(.line)" else "" end; .problems[]? | "  - \(.type): \(if (location | length) > 0 then "\(location): " else "" end)\(.message)"' "$LOG_DIR/.validate.json" || cat "$LOG_DIR/.validate.json"
   else
     cat "$LOG_DIR/.validate.json"
   fi

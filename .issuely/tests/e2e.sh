@@ -546,6 +546,34 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────
+# 6b. run_while 在 issue 文件名不可调度时应提前失败，而不是进入 idle 死锁
+# ─────────────────────────────────────────────────────────────────────────
+note "6b. run_while issue preflight"
+
+PROJ_INVALID_ISSUES="$TMP_ROOT/proj-invalid-issues"
+mkdir -p "$PROJ_INVALID_ISSUES/workspace/issues"
+ln -s "$META_SRC" "$PROJ_INVALID_ISSUES/.issuely"
+echo '{"workspace":"workspace","tools":""}' > "$PROJ_INVALID_ISSUES/config.json"
+cat > "$PROJ_INVALID_ISSUES/workspace/issues/not-an-issue.md" <<'ISS'
+# invalid issue file
+ISS
+
+set +e
+ISSUELY_PROJECT_DIR="$PROJ_INVALID_ISSUES" \
+PATH="$FAKE_BIN:$PATH" \
+"$META_SRC/bin/run_while.sh" >"$TMP_ROOT/invalid-issues.out" 2>&1
+rc=$?
+set -e
+if [ "$rc" -ne 0 ] \
+   && grep -q "issue 目录不可调度" "$TMP_ROOT/invalid-issues.out" \
+   && grep -q "invalid-issue-file: not-an-issue.md" "$TMP_ROOT/invalid-issues.out"; then
+  ok "run_while fails fast on invalid issue file names"
+else
+  ng "run_while should fail fast on invalid issue file names (rc=$rc)"
+  cat "$TMP_ROOT/invalid-issues.out"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────
 # 7. 六位 issue 编号与 issue refine
 # ─────────────────────────────────────────────────────────────────────────
 note "7. six-digit issues and issue refine"

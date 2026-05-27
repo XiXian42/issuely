@@ -56,11 +56,37 @@ deadlock_exit() {
   exit 1
 }
 
+format_problems() {
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '
+      def location:
+        if .file then .file
+        elif .issue then .issue
+        elif .line then "line \(.line)"
+        else "" end;
+      .problems[]? | "  - \(.type): \(if (location | length) > 0 then "\(location): " else "" end)\(.message)"
+    '
+  else
+    cat
+  fi
+}
+
+issue_preflight() {
+  mkdir -p "$LOG_DIR"
+  if ! node "$META_DIR/bin/status_manager.js" issue-preflight --workspace-dir "$WORKSPACE" --json > "$LOG_DIR/.issue-preflight.json" 2>&1; then
+    echo "⚠️  [run_while] issue 目录不可调度："
+    format_problems < "$LOG_DIR/.issue-preflight.json"
+    echo "请修正 $ISSUES_DIR_REL/ 下的 issue 文件名或重新运行：issuely issue"
+    exit 1
+  fi
+}
+
 echo "[run_while] 启动循环调度"
 echo "  project   : ."
 echo "  workspace : ${WORKSPACE_REL:-workspace}"
 echo "  issues    : ${ISSUES_DIR_REL:-${WORKSPACE_REL:-workspace}/issues}"
 echo "  status    : ${STATUS_PATH_REL:-${WORKSPACE_REL:-workspace}/status.md}"
+issue_preflight
 
 while true; do
   if [ -f "$DEV_DONE" ] && [ -f "$REVIEW_DONE" ]; then
