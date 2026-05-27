@@ -27,8 +27,9 @@ curl -fsSL https://raw.githubusercontent.com/XiXian42/issuely/main/install.sh | 
 
 1. 安装 `issuely` 命令
 2. 检测你本机已有的 agent
-3. 让你为 `planner / dev / review` 分别选择 agent、模型和 thinking / effort
-4. 把默认配置写入 `~/.issuely/config.json`
+3. 让你选择一个默认 agent（用于 planner / dev / review）
+4. 再为 dev / review 选择模型和 thinking / effort；planner 默认使用该 agent 的内置模型，thinking 建议为 `high`
+5. 把默认配置写入 `~/.issuely/config.json`
 
 前提：系统里至少已经安装一个支持的 agent。
 
@@ -112,7 +113,7 @@ env overrides > ./config.json > ~/.issuely/config.json > built-in defaults
     "review": {
       "agent": "claude",
       "model": "sonnet",
-      "thinking": "high"
+      "thinking": "low"
     }
   }
 }
@@ -126,9 +127,13 @@ env overrides > ./config.json > ~/.issuely/config.json > built-in defaults
   "workspace": "workspace",
   "language": "Rust",
   "roles": {
+    "dev": {
+      "model": "gpt-5.5",
+      "thinking": "high"
+    },
     "review": {
       "model": "claude-sonnet-4-6",
-      "thinking": "xhigh"
+      "thinking": "low"
     }
   }
 }

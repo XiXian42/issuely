@@ -47,16 +47,6 @@ process.stdout.write(current == null ? "" : String(current));
 NODE
 }
 
-agent_desc() {
-  case "$1" in
-    pi) printf 'balanced coding agent' ;;
-    omp) printf 'pi-compatible agent' ;;
-    claude) printf 'strong review / reasoning' ;;
-    codex) printf 'strong implementation / repo work' ;;
-    *) printf '%s' "$1" ;;
-  esac
-}
-
 collect_available_agents() {
   local found=()
   local agent
@@ -66,16 +56,6 @@ collect_available_agents() {
     fi
   done
   printf '%s\n' "${found[@]}"
-}
-
-contains_value() {
-  local needle="$1"
-  shift
-  local item
-  for item in "$@"; do
-    [ "$item" = "$needle" ] && return 0
-  done
-  return 1
 }
 
 agent_menu() {
@@ -137,9 +117,47 @@ role_title() {
   esac
 }
 
+in_list() {
+  local needle="$1"
+  shift
+  local item
+  for item in "$@"; do
+    [ "$item" = "$needle" ] && return 0
+  done
+  return 1
+}
+
+normalize_current_model() {
+  local chosen_agent="$1" current_agent="$2" current_model="$3"
+  if [ -n "$current_model" ] && [ "$chosen_agent" = "$current_agent" ]; then
+    printf '%s' "$current_model"
+  else
+    printf ''
+  fi
+}
+
+normalize_current_thinking() {
+  local chosen_agent="$1" current_agent="$2" current_thinking="$3"
+  [ -z "$current_thinking" ] && return 0
+  if [ "$chosen_agent" != "$current_agent" ]; then
+    printf ''
+    return 0
+  fi
+  local values=()
+  local value
+  while IFS= read -r value; do
+    [ -n "$value" ] && values+=("$value")
+  done < <(thinking_values_for "$chosen_agent")
+  if in_list "$current_thinking" "${values[@]}"; then
+    printf '%s' "$current_thinking"
+  else
+    printf ''
+  fi
+}
+
 menu_pick() {
-  local prompt="$1" default_index="$2"
-  shift 2
+  local default_index="$1"
+  shift
   local options=("$@")
   local total="${#options[@]}"
   local i choice
@@ -161,22 +179,20 @@ menu_pick() {
   done
 }
 
-pick_agent_for_role() {
-  local role="$1" default_agent="$2"
+pick_agent() {
+  local default_agent="$1"
   local options=()
-  local agents=()
   local default_index=1
   local i
   for ((i=0; i<${#AVAILABLE_AGENTS[@]}; i++)); do
     local agent="${AVAILABLE_AGENTS[$i]}"
-    agents+=("$agent")
-    options+=("$(bold "$agent") — $(dim "$(agent_desc "$agent")")")
+    options+=("$(bold "$agent")")
     [ "$agent" = "$default_agent" ] && default_index=$((i + 1))
   done
-  prompt_line "\n  $(bold "$(role_title "$role")") agent\n"
+  prompt_line "\n  $(bold "Agent")\n"
   local picked
-  picked="$(menu_pick "agent" "$default_index" "${options[@]}")"
-  printf '%s' "${agents[$((picked - 1))]}"
+  picked="$(menu_pick "$default_index" "${options[@]}")"
+  printf '%s' "${AVAILABLE_AGENTS[$((picked - 1))]}"
 }
 
 pick_model_for_role() {
@@ -196,52 +212,30 @@ pick_model_for_role() {
 
   prompt_line "\n  $(bold "$(role_title "$role") model") $(dim "for $agent")\n"
   prompt_line "  Examples: $(dim "$(model_examples_for "$agent")")\n"
+
   local options=()
-  local use_agent_default_option=1
+  local action_values=()
   options+=("$default_label")
-  if [ -n "$suggested" ] && [ "$default_value" != "$suggested" ]; then
-    options+=("Use suggested default: $(bold "$suggested")")
-  fi
-  if [ -n "$default_value" ] || [ -n "$suggested" ]; then
+  action_values+=("$default_value")
+
+  if [ -n "$default_value" ]; then
     options+=("Use agent built-in default $(dim "(unset --model)")")
-  else
-    use_agent_default_option=0
+    action_values+=("")
   fi
+
   options+=("Enter a custom model id")
-  local picked
-  picked="$(menu_pick "model" 1 "${options[@]}")"
-  case "$picked" in
-    1)
-      printf '%s' "$default_value"
-      return 0
-      ;;
-    2)
-      if [ -n "$suggested" ] && [ "$default_value" != "$suggested" ]; then
-        printf '%s' "$suggested"
-        return 0
-      fi
-      if [ "$use_agent_default_option" = "1" ]; then
-        printf '%s' ""
-        return 0
-      fi
-      ;;
-    3)
-      if [ -n "$suggested" ] && [ "$default_value" != "$suggested" ]; then
-        printf '%s' ""
-        return 0
-      fi
-      if [ "$use_agent_default_option" = "1" ]; then
-        :
-      else
-        printf '%s' ""
-        return 0
-      fi
-      ;;
-  esac
-  local custom
-  prompt_line "  Custom model id: "
-  read_tty custom
-  printf '%s' "$custom"
+  action_values+=("__custom__")
+
+  local picked picked_value custom
+  picked="$(menu_pick 1 "${options[@]}")"
+  picked_value="${action_values[$((picked - 1))]}"
+  if [ "$picked_value" = "__custom__" ]; then
+    prompt_line "  Custom model id: "
+    read_tty custom
+    printf '%s' "$custom"
+  else
+    printf '%s' "$picked_value"
+  fi
 }
 
 pick_thinking_for_role() {
@@ -253,7 +247,7 @@ pick_thinking_for_role() {
   done < <(thinking_values_for "$agent")
 
   prompt_line "\n  $(bold "$(role_title "$role") thinking / effort") $(dim "for $agent")\n"
-  prompt_line "  Suggested for $(role_title "$role"): $(green "$recommended")\n"
+  prompt_line "  Suggested: $(green "$recommended")\n"
 
   if [ -n "$current_value" ]; then
     options+=("Keep current: $(bold "$current_value")")
@@ -274,7 +268,7 @@ pick_thinking_for_role() {
   done
 
   local picked
-  picked="$(menu_pick "thinking" 1 "${options[@]}")"
+  picked="$(menu_pick 1 "${options[@]}")"
   printf '%s' "${values_out[$((picked - 1))]}"
 }
 
@@ -283,52 +277,32 @@ prompt_line "  $(bold "Issuely") — global configuration\n"
 prompt_line "  $(dim "$GLOBAL_PATH")\n\n"
 
 agent_menu
-if contains_value pi "${AVAILABLE_AGENTS[@]}" || contains_value omp "${AVAILABLE_AGENTS[@]}" || contains_value claude "${AVAILABLE_AGENTS[@]}" || contains_value codex "${AVAILABLE_AGENTS[@]}"; then
-  prompt_line "  Detected agents:\n"
-  local_i=1
-  for agent in "${AVAILABLE_AGENTS[@]}"; do
-    prompt_line "    $(cyan "$local_i)") $(bold "$agent") — $(dim "$(agent_desc "$agent")")\n"
-    local_i=$((local_i + 1))
-  done
-  prompt_line "\n"
-fi
+current_agent="$(json_get config.roles.dev.agent)"
+current_agent="${current_agent:-$(json_get config.roles.review.agent)}"
+current_agent="${current_agent:-$(json_get config.roles.planner.agent)}"
+current_agent="${current_agent:-${AVAILABLE_AGENTS[0]:-pi}}"
 
-planner_agent_default="$(json_get config.roles.planner.agent)"
-dev_agent_default="$(json_get config.roles.dev.agent)"
-review_agent_default="$(json_get config.roles.review.agent)"
-planner_agent_default="${planner_agent_default:-${AVAILABLE_AGENTS[0]:-pi}}"
-dev_agent_default="${dev_agent_default:-$planner_agent_default}"
-review_agent_default="${review_agent_default:-$dev_agent_default}"
+prompt_line "  $(yellow "[1/3]") $(bold "Choose one agent")\n"
+chosen_agent="$(pick_agent "$current_agent")"
+prompt_line "\n  $(dim "Planner will use this agent with model=<agent default> and thinking=high")\n"
 
-prompt_line "  $(yellow "[1/4]") $(bold "Choose agents")\n"
-base_agent="$(pick_agent_for_role planner "$planner_agent_default")"
-use_same="$(menu_pick "same-agent" 1 "Yes — use $(bold "$base_agent") for planner / dev / review" "No — choose each role separately")"
-if [ "$use_same" = "1" ]; then
-  planner_agent="$base_agent"
-  dev_agent="$base_agent"
-  review_agent="$base_agent"
-else
-  planner_agent="$base_agent"
-  dev_agent="$(pick_agent_for_role dev "$dev_agent_default")"
-  review_agent="$(pick_agent_for_role review "$review_agent_default")"
-fi
+planner_model=""
+planner_thinking="high"
+planner_agent="$chosen_agent"
+dev_agent="$chosen_agent"
+review_agent="$chosen_agent"
 
-planner_model_current="$(json_get config.roles.planner.model)"
-dev_model_current="$(json_get config.roles.dev.model)"
-review_model_current="$(json_get config.roles.review.model)"
-planner_thinking_current="$(json_get config.roles.planner.thinking)"
-dev_thinking_current="$(json_get config.roles.dev.thinking)"
-review_thinking_current="$(json_get config.roles.review.thinking)"
+planner_model_current="$(normalize_current_model "$chosen_agent" "$(json_get config.roles.planner.agent)" "$(json_get config.roles.planner.model)")"
+dev_model_current="$(normalize_current_model "$chosen_agent" "$(json_get config.roles.dev.agent)" "$(json_get config.roles.dev.model)")"
+review_model_current="$(normalize_current_model "$chosen_agent" "$(json_get config.roles.review.agent)" "$(json_get config.roles.review.model)")"
+dev_thinking_current="$(normalize_current_thinking "$chosen_agent" "$(json_get config.roles.dev.agent)" "$(json_get config.roles.dev.thinking)")"
+review_thinking_current="$(normalize_current_thinking "$chosen_agent" "$(json_get config.roles.review.agent)" "$(json_get config.roles.review.thinking)")"
 
-prompt_line "\n  $(yellow "[2/4]") $(bold "Planner")\n"
-planner_model="$(pick_model_for_role planner "$planner_agent" "$planner_model_current")"
-planner_thinking="$(pick_thinking_for_role planner "$planner_agent" "$planner_thinking_current")"
-
-prompt_line "\n  $(yellow "[3/4]") $(bold "Dev")\n"
+prompt_line "\n  $(yellow "[2/3]") $(bold "Dev")\n"
 dev_model="$(pick_model_for_role dev "$dev_agent" "$dev_model_current")"
 dev_thinking="$(pick_thinking_for_role dev "$dev_agent" "$dev_thinking_current")"
 
-prompt_line "\n  $(yellow "[4/4]") $(bold "Review")\n"
+prompt_line "\n  $(yellow "[3/3]") $(bold "Review")\n"
 review_model="$(pick_model_for_role review "$review_agent" "$review_model_current")"
 review_thinking="$(pick_thinking_for_role review "$review_agent" "$review_thinking_current")"
 
@@ -373,7 +347,7 @@ NODE
 CONFIG_JSON="$CONFIG_JSON" node "$CONFIG_HELPER" write-global --config-json-from-env CONFIG_JSON >/dev/null
 
 prompt_line "\n  $(green "✓") Saved global config: $GLOBAL_PATH\n\n"
-prompt_line "  $(bold "Planner") $(cyan "$planner_agent") $(dim "model=${planner_model:-<agent default>} thinking=${planner_thinking:-<agent default>}")\n"
+prompt_line "  $(bold "Planner") $(cyan "$planner_agent") $(dim "model=<agent default> thinking=${planner_thinking}")\n"
 prompt_line "  $(bold "Dev    ") $(cyan "$dev_agent") $(dim "model=${dev_model:-<agent default>} thinking=${dev_thinking:-<agent default>}")\n"
 prompt_line "  $(bold "Review ") $(cyan "$review_agent") $(dim "model=${review_model:-<agent default>} thinking=${review_thinking:-<agent default>}")\n\n"
-prompt_line "  Next:\\n    $ cd <your-project>\\n    $ issuely prd\\n"
+prompt_line "  Next:\n    $ cd <your-project>\n    $ issuely prd\n"
