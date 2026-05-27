@@ -2,11 +2,12 @@
 
 > 用极简的方式，推进一个本来要花数十小时才能拆清、排期、开发、审查、验收的复杂工程任务。
 
-Issuely 会把一件复杂工作压成一条可持续推进的流水线：
+Issuely 把一件复杂工作压成一条可持续推进的流水线：
 
-- 先把模糊想法聊成 PRD
-- 再自动拆成有依赖顺序的 issue 包
-- 最后由 planner / dev / review 多 agent 按 issue 接力推进
+1. 把模糊想法聊成 PRD
+2. 自动拆成有依赖顺序的 issue 包
+3. 可选地 refine 高风险 / 高复杂度 issue
+4. 由 planner / dev / review 多 agent 按 issue 接力推进
 
 它适合：
 
@@ -33,25 +34,37 @@ curl -fsSL https://raw.githubusercontent.com/XiXian42/issuely/main/install.sh | 
 
 前提：系统里至少已经安装一个支持的 agent。
 
-## 极简使用示例
+## 极简终端 Demo
 
-```bash
-mkdir html-to-pptx-rs
-cd html-to-pptx-rs
+```console
+$ mkdir html-to-pptx-rs
+$ cd html-to-pptx-rs
 
-issuely prd
-# 然后告诉它：
+$ issuely prd
+# 告诉它：
 # “我要把一个 JS 的 HTML→PPTX 工具完整 port 到 Rust，保留 CLI、HTTP 服务和测试迁移。”
 
-issuely issue
-issuely dev
+$ issuely issue
+
+# 可选：开发前先细化复杂 issue；简单项目可以跳过
+$ issuely issue refine
+
+$ issuely dev
 ```
 
-第一次你只需要记住这 3 个命令：
+最少只需要记住 3 个必需命令：
 
-- `issuely prd`
-- `issuely issue`
-- `issuely dev`
+```console
+$ issuely prd
+$ issuely issue
+$ issuely dev
+```
+
+如果 issue 很大、依赖很多、验收条件不够清楚，再加一步可选 refine：
+
+```console
+$ issuely issue refine
+```
 
 ## 运行后会得到什么
 
@@ -74,7 +87,7 @@ issuely dev
 ```bash
 issuely prd           # 收集 / 生成 PRD
 issuely issue         # 生成 / 重写 issue 包
-issuely issue refine  # 开发前 refine 复杂 issue
+issuely issue refine  # 可选：开发前 refine 复杂 issue
 issuely dev           # 启动 dev/review 流水线
 issuely config        # 修改 ~/.issuely/config.json（交互）
 issuely status        # 查看当前目录的有效配置与可用 agent
