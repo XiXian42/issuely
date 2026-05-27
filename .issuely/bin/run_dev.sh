@@ -12,10 +12,10 @@ if [ -f "$DEV_DONE" ]; then
   exit 0
 fi
 
-echo "[run_dev] model: ${DEV_MODEL:-<pi default>}"
+echo "[run_dev] $(role_summary dev)"
 
 PROMPT_FILE="$(mktemp "${TMPDIR:-/tmp}/run_dev_prompt.XXXXXX")"
 trap 'rm -f "$PROMPT_FILE"' EXIT
 
 render_prompt "$META_DIR/core_prompts/dev_agent.tpl" "$PROMPT_FILE"
-run_pi_prompt "$PROMPT_FILE" "run_dev" "$DEV_MODEL"
+run_role_prompt "dev" "$PROMPT_FILE" "run_dev"

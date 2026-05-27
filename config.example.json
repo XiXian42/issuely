@@ -1,13 +1,39 @@
 {
   "projectName": "my-project",
   "workspace": "workspace",
-  "language": "JavaScript (Node.js)",
+  "language": "Rust",
   "originalRequirement": "",
-  "models": {
-    "dev": "openai-codex/gpt-5.5",
-    "review": "openrouter/anthropic/claude-sonnet-4.6",
-    "planner": null
+  "roles": {
+    "planner": {
+      "agent": "pi",
+      "model": null,
+      "thinking": null
+    },
+    "dev": {
+      "agent": "pi",
+      "model": "openai-codex/gpt-5.5",
+      "thinking": "high"
+    },
+    "review": {
+      "agent": "claude",
+      "model": "sonnet",
+      "thinking": "high"
+    }
   },
-  "tools": "",
-  "piTrace": 1
+  "agents": {
+    "pi": {
+      "tools": "",
+      "trace": 1
+    },
+    "omp": {
+      "tools": ""
+    },
+    "claude": {
+      "permissionMode": "dontAsk"
+    },
+    "codex": {
+      "sandbox": "workspace-write",
+      "approval": "never"
+    }
+  }
 }

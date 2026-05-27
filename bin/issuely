@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+_issuely_realpath() {
+  local p="$1"
+  if readlink -f "$p" >/dev/null 2>&1; then
+    readlink -f "$p"
+    return
+  fi
+  local dir target
+  while [ -L "$p" ]; do
+    dir="$(cd "$(dirname "$p")" && pwd)"
+    target="$(readlink "$p")"
+    if [[ "$target" == /* ]]; then
+      p="$target"
+    else
+      p="$dir/$target"
+    fi
+  done
+  printf '%s\n' "$(cd "$(dirname "$p")" && pwd)/$(basename "$p")"
+}
+
+REAL_BIN="$(_issuely_realpath "${BASH_SOURCE[0]}")"
+INSTALL_ROOT="$(cd "$(dirname "$REAL_BIN")/.." && pwd)"
+META_DIR="$INSTALL_ROOT/.issuely"
+START_SH="$INSTALL_ROOT/start.sh"
+CONFIG_HELPER="$META_DIR/lib/config.cjs"
+COMMAND="${1:-help}"
+
+print_help() {
+  cat <<'EOF'
+Issuely — issue-driven agentic development
+
+Usage:
+  issuely prd           收集 / 生成 PRD
+  issuely issue         生成 / 重写 issue 包
+  issuely issue refine  开发前 refine 复杂 issue
+  issuely dev           启动 dev/review 流水线
+  issuely config        修改 ~/.issuely/config.json（交互）
+  issuely status        查看当前目录的有效配置与可用 agent
+  issuely install-hooks 为当前项目安装 git hooks
+  issuely help          显示帮助
+
+Run issuely from the project root you want to work on.
+EOF
+}
+
+show_status() {
+  export ISSUELY_PROJECT_DIR="${ISSUELY_PROJECT_DIR:-$PWD}"
+  export ISSUELY_META_DIR="${ISSUELY_META_DIR:-$META_DIR}"
+  local config_json global_view
+  config_json="$(node "$CONFIG_HELPER" show)"
+  global_view="$(node "$CONFIG_HELPER" show-global)"
+  CONFIG_JSON="$config_json" GLOBAL_VIEW="$global_view" node - <<'NODE'
+const config = JSON.parse(process.env.CONFIG_JSON);
+const globalView = JSON.parse(process.env.GLOBAL_VIEW);
+const roles = ["planner", "dev", "review"];
+console.log("Issuely status");
+console.log(`  project dir   : ${config.projectDir}`);
+console.log(`  workspace     : ${config.workspaceRel}`);
+console.log(`  meta dir      : ${config.metaDirRef}`);
+console.log(`  global config : ${globalView.path}${globalView.exists ? "" : " (not created yet)"}`);
+console.log("  roles:");
+for (const role of roles) {
+  const entry = config.roles[role];
+  console.log(`    ${role.padEnd(7)} agent=${entry.agent} model=${entry.model || "<agent default>"} thinking=${entry.thinking || "<agent default>"}`);
+}
+NODE
+  printf '  available     :'
+  local found=""
+  local agent
+  for agent in pi omp claude codex; do
+    if command -v "$agent" >/dev/null 2>&1; then
+      printf ' %s' "$agent"
+      found=1
+    fi
+  done
+  if [ -z "$found" ]; then
+    printf ' none'
+  fi
+  printf '\n'
+}
+
+case "$COMMAND" in
+  help|-h|--help)
+    print_help
+    exit 0
+    ;;
+  config)
+    "$META_DIR/bin/configure_global.sh"
+    exit 0
+    ;;
+  status)
+    show_status
+    exit 0
+    ;;
+  install-hooks)
+    export ISSUELY_PROJECT_DIR="${ISSUELY_PROJECT_DIR:-$PWD}"
+    export ISSUELY_META_DIR="${ISSUELY_META_DIR:-$META_DIR}"
+    "$META_DIR/bin/install_hooks.sh"
+    exit 0
+    ;;
+  *)
+    export ISSUELY_PROJECT_DIR="${ISSUELY_PROJECT_DIR:-$PWD}"
+    export ISSUELY_META_DIR="${ISSUELY_META_DIR:-$META_DIR}"
+    exec "$START_SH" "$@"
+    ;;
+esac

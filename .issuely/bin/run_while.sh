@@ -33,24 +33,34 @@ done_state() {
 }
 
 deadlock_exit() {
+  local blocked
+  if ! blocked="$(node "$META_DIR/bin/status_manager.js" blocked --workspace-dir "$WORKSPACE")"; then blocked=""; fi
   printf '\n'
   echo "=========================================================="
-  echo "⚠️  [run_while] 状态连续 $DEADLOCK_COUNTER 轮无变化，判定为死锁，已停止。"
-  echo "----------------------------------------------------------"
-  echo " 你可以："
-  echo "   1) 查看最近状态：tail -n 30 \"$STATUS_PATH\""
-  echo "   2) 看是否有 blocked：grep blocked \"$STATUS_PATH\" || true"
-  echo "   3) 续跑（不会丢数据）：./start.sh dev"
-  echo "   4) 修正 issue 后再续跑：编辑 \$ISSUES_DIR/NNN-*.md 后 ./start.sh dev"
+  if [ -n "$blocked" ] && [ "$blocked" != "blocked 0" ]; then
+    echo "⚠️  [run_while] 状态连续 $DEADLOCK_COUNTER 轮无变化；当前剩余 issue 全部阻塞，已停止。"
+    echo "----------------------------------------------------------"
+    echo "阻塞 issue："
+    printf '%s\n' "$blocked"
+    echo "----------------------------------------------------------"
+    echo "可通过 status_manager append unblocked 或 resolved-by 清除阻塞后续跑：issuely dev"
+  else
+    echo "⚠️  [run_while] 状态连续 $DEADLOCK_COUNTER 轮无变化，判定为死锁，已停止。"
+    echo "----------------------------------------------------------"
+    echo " 你可以："
+    echo "   1) 查看日志末尾或 $STATUS_PATH"
+    echo "   2) 续跑（不会丢数据）：issuely dev"
+    echo "   3) 修正 issue 后再续跑：编辑 $ISSUES_DIR_REL/NNNNNN-*.md 后 issuely dev"
+  fi
   echo "=========================================================="
   exit 1
 }
 
 echo "[run_while] 启动循环调度"
 echo "  project   : ."
-echo "  workspace : workspace"
-echo "  issues    : workspace/issues"
-echo "  status    : workspace/status.md"
+echo "  workspace : ${WORKSPACE_REL:-workspace}"
+echo "  issues    : ${ISSUES_DIR_REL:-${WORKSPACE_REL:-workspace}/issues}"
+echo "  status    : ${STATUS_PATH_REL:-${WORKSPACE_REL:-workspace}/status.md}"
 
 while true; do
   if [ -f "$DEV_DONE" ] && [ -f "$REVIEW_DONE" ]; then
@@ -65,8 +75,10 @@ while true; do
   before_done="$(done_state)"
 
   if [ ! -f "$DEV_DONE" ]; then
-    echo "[run_while] dev agent (${DEV_MODEL:-<pi default>})"
-    if ! "$DIR/run_dev.sh"; then
+    echo "[run_while] dev agent ($(role_summary dev))"
+    if "$DIR/run_dev.sh"; then
+      :
+    else
       RC=$?
       echo "[run_while] dev 退出非零 (rc=$RC)，本轮跳过 dev，继续 review。"
     fi
@@ -75,8 +87,10 @@ while true; do
   fi
 
   if [ ! -f "$REVIEW_DONE" ]; then
-    echo "[run_while] review agent (${REVIEW_MODEL:-<pi default>})"
-    if ! "$DIR/run_review.sh"; then
+    echo "[run_while] review agent ($(role_summary review))"
+    if "$DIR/run_review.sh"; then
+      :
+    else
       RC=$?
       echo "[run_while] review 退出非零 (rc=$RC)，进入死锁判定。"
     fi

@@ -12,10 +12,10 @@ if [ -f "$REVIEW_DONE" ]; then
   exit 0
 fi
 
-echo "[run_review] model: ${REVIEW_MODEL:-<pi default>}"
+echo "[run_review] $(role_summary review)"
 
 PROMPT_FILE="$(mktemp "${TMPDIR:-/tmp}/run_review_prompt.XXXXXX")"
 trap 'rm -f "$PROMPT_FILE"' EXIT
 
 render_prompt "$META_DIR/core_prompts/review_agent.tpl" "$PROMPT_FILE"
-run_pi_prompt "$PROMPT_FILE" "run_review" "$REVIEW_MODEL"
+run_role_prompt "review" "$PROMPT_FILE" "run_review"

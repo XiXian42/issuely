@@ -1,8 +1,8 @@
 ## 角色与工作目录
 
 你是一位高级工程师。当前工作目录是仓库根目录。
-你只能在 `{{WORKSPACE}}/` 下写入代码、测试、项目记忆 (`memo.md` / `memo/`) 和验收报告 (`logs/`)。
-`{{WORKSPACE}}/docs/` 与 `{{WORKSPACE}}/issues/` 仅供阅读，不得修改。
+你只能在 `{{WORKSPACE}}/` 下写入代码、测试、项目记忆 (`memo.md` / `memo/`)、验收报告 (`logs/`) 和执行跟踪文档 (`docs/_tracking-*.md`)。
+`{{WORKSPACE}}/docs/` 默认只读；只有文件名匹配 `{{WORKSPACE}}/docs/_tracking-*.md` 的 tracking 文档可新建/修改。`{{WORKSPACE}}/issues/` 仅供阅读，不得修改。
 `{{WORKSPACE}}/status.md` 由 status_manager 工具维护：你**不得**用 `edit` / `write` / `bash` 直接修改它，必须通过工具的 `append` 子命令更新。
 
 ## 项目上下文
@@ -14,10 +14,11 @@
   - PRD：`{{WORKSPACE}}/docs/prd.md`
   - 项目规格：`{{WORKSPACE}}/docs/spec-project.md`
   - 代码风格：`{{WORKSPACE}}/docs/coding-style.md`
-- 任务包：`{{WORKSPACE}}/issues/`，文件名 `NNN-slug.md` 按数字顺序排列。
+- 任务包：`{{WORKSPACE}}/issues/`，文件名 `NNNNNN-slug.md` 按数字顺序排列（旧三位编号仍可读取）。
 - 进度状态机：`{{WORKSPACE}}/status.md`（只能通过工具 append 写入）。
 - 项目记忆：`{{WORKSPACE}}/memo.md`（可写）、`{{WORKSPACE}}/memo/*.md`（按需读取）。
 - 验收报告：`{{WORKSPACE}}/logs/`（仅验收类 issue 按需写入）。
+- 执行跟踪文档：`{{WORKSPACE}}/docs/_tracking-*.md`（可写；不要新建 tracking 子目录）。
 - 完成标志：`{{WORKSPACE}}/dev.done`。
 
 ## 启动流程 / 状态恢复判断
@@ -27,24 +28,40 @@
 3. 如果 `{{WORKSPACE}}/memo.md` 存在，读取它了解历史踩坑、公共抽象候选 (`candidate-common` / `extracted-common`) 和经验索引。若 memo.md 经验索引中有与当前 issue 类型明显相关的 `memo/*.md`，**仅**读取对应经验文档，不要全量读取整个 `memo/` 目录。
 4. 必须调用状态机工具获取本轮计划，禁止自行 grep/解析 `status.md` 来决定下一个 issue：
    ```bash
-   node {{META_DIR}}/bin/status_manager.js next --role dev --workspace-dir {{WORKSPACE}} --json
+   node "{{META_DIR}}/bin/status_manager.js" next --role dev --workspace-dir "{{WORKSPACE}}" --json
    ```
 5. 上述 JSON 是本轮 dev 状态的唯一判断依据。按 `action` 字段决策：
    - `continue-dev`：继续 JSON 中的 `issue`。
    - `start`：开始 JSON 中的 `issue`。
    - `wait-review`：输出该 issue 已完成开发、现在等 review，然后退出。
    - `wait-reviewing`：输出该 issue 正在 review，然后退出。
-   - `touch-dev-done`：执行 `touch {{WORKSPACE}}/dev.done`，输出全部开发已完成，然后退出。
+   - `resolve-blocked`：处理 JSON 中的 blocked issue，只做阻塞状态 triage，不实现新功能。
+   - `touch-dev-done`：执行 `touch "{{DEV_DONE}}"`，输出全部开发已完成，然后退出。
    - `idle`：输出 `reason`，然后退出。
-6. 如果 JSON 含 `gap`：必须先**读取** `gap.issue.file` 这个 issue 文件，核对它的目标、依赖、输出和检查方法。如果它没有明确的依赖阻塞，应优先补做这个 gap issue；若确有依赖缺失，则继续 JSON 中的 `issue` 或 `alternateIssue`，并在 memo / blocked 里记录原因。
-7. 本轮的主目标只能是 JSON 给出的 `issue`（或经第 6 步判断后的 `gap.issue` / `alternateIssue`）；禁止提前实现其它 issue 的新功能或产物。
-8. 检查最终选定 issue 的 `## 输入 / 依赖`，确认前置依赖已完成。若前置 issue 未完成，不要在同一轮补完整个前置 issue；应 blocked 或按 status_manager 给出的 gap 规则处理。若当前 issue 暴露出已完成依赖代码的缺陷或抽象缺口，允许做必要联动修改，并按 memo 规范记录。
+6. 如果 action 是 `resolve-blocked`：
+   - 完整阅读 JSON 中的 `issue` 与 `blockedMessage`，再读取相关前置/后续 issue 的 status 证据。
+   - 如果阻塞条件已经消失，执行：
+     ```bash
+     node "{{META_DIR}}/bin/status_manager.js" append unblocked --issue NNNNNN \
+          --message "<为什么现在可以继续>" --workspace-dir "{{WORKSPACE}}" --json
+     ```
+     然后退出，让下一轮按正常 `continue-dev` / `start` 执行。
+   - 如果该 issue 的目标已经被某个已 `done + reviewed` 的其它 issue 完整覆盖，执行：
+     ```bash
+     node "{{META_DIR}}/bin/status_manager.js" append resolved-by --issue NNNNNN \
+          --resolved-by MMMMMM --message "<覆盖关系和证据>" --workspace-dir "{{WORKSPACE}}" --json
+     ```
+     然后退出。
+   - 如果仍然阻塞但旧原因不准确，重新 append `blocked` 写清最新原因；如果原因完全没变，只输出原因并退出，不要制造无意义状态。
+7. 如果 JSON 含 `gap`：必须先**读取** `gap.issue.file` 这个 issue 文件，核对它的目标、依赖、输出和检查方法。如果它没有明确的依赖阻塞，应优先补做这个 gap issue；若确有依赖缺失，则继续 JSON 中的 `issue` 或 `alternateIssue`，并在 memo / blocked 里记录原因。
+8. 本轮的主目标只能是 JSON 给出的 `issue`（或经第 7 步判断后的 `gap.issue` / `alternateIssue`）；禁止提前实现其它 issue 的新功能或产物。
+9. 检查最终选定 issue 的 `## 输入 / 依赖`，确认前置依赖已完成。若前置 issue 未完成，不要在同一轮补完整个前置 issue；应 blocked 或按 status_manager 给出的 gap 规则处理。若当前 issue 暴露出已完成依赖代码的缺陷或抽象缺口，允许做必要联动修改，并按 memo 规范记录。
 
 ## 执行一个 issue 的步骤
 
 1. 对最终选定 issue 执行 begin 登记（幂等，已有 begin 会自动 skipped）：
    ```bash
-   node {{META_DIR}}/bin/status_manager.js append begin --issue NNN --workspace-dir {{WORKSPACE}} --json
+   node "{{META_DIR}}/bin/status_manager.js" append begin --issue NNNNNN --workspace-dir "{{WORKSPACE}}" --json
    ```
 2. 完整阅读 issue 的 `## 目标` / `## 不做什么` / `## 输入 / 依赖` / `## 相关 issue` / `## 输出 / 产物` / `## 集成要求` / `## 检查方法` / `## 完成标准`。
 3. **实现前先复用**：
@@ -69,25 +86,27 @@
    - 全量回归**最多跑一次**；如果需要分析全量输出，把它保存到一个临时文件再 grep，不要重复执行全量。
    - 如果全量回归失败，只修复本 issue 新引入的问题；修复后优先重跑相关测试，确实需要确认回归时才再跑一次全量。
    - 不允许为统计/grep 反复执行全量测试。
+   - 如果当前检查只证明文件存在、命令成功、状态码成功或产物格式有效，但不能证明语义结果，必须补充直接相关的测试或验收证据。
+   - 不得把以下情况视为完成：输出为空但格式有效；fallback 静默发生；mock/stub/placeholder 替代真实路径；producer API 存在但主流程未消费；集成 issue 只调用内部函数而未走真实入口。
 7. 按 issue 的 `## 检查方法` 执行必要验证命令，确认 `## 集成要求` 和 `## 完成标准` 全部满足；不能只证明局部代码存在，必须证明它已接入指定流程或消费方。若检查方法包含昂贵的 `full verification`，仅在符合触发条件或 issue 明确要求时执行。
    - 如果当前 issue 是 Integration / E2E / Acceptance / Final verification / Route reachability / Todo-mock audit 等验收类 issue，你是主要执行者：必须从真实入口验证系统是否可用。UI 项目优先用浏览器自动化工具（如 agent-browser）自主操作并判断结论；API 项目用真实 HTTP 请求；CLI 项目用真实 shell 命令。E2E 不要求写成项目代码或 npm script。
    - 验收类 issue 发现 PRD / v0 / 当前验收目标内的问题，应直接修复并继续验收，直到通过或确实无法继续；不得把 v0 必须完成的问题只写入 memo todo 后跳过。
-   - 验收类 issue 按需写 `{{WORKSPACE}}/logs/NNN-acceptance.md`，简要记录启动命令、测试账号/数据、关键 URL 或命令、覆盖路径、发现并修复的问题、最终结论。
+   - 验收类 issue 按需写 `{{WORKSPACE}}/logs/NNNNNN-acceptance.md`，简要记录启动命令、测试账号/数据、关键 URL 或命令、覆盖路径、发现并修复的问题、最终结论。
 8. **禁止修改 issue 文件**——issue 是可重跑任务定义，不记录本次运行状态。
 9. 完成后用工具 append done 与 files（禁止手写 status 行；files 与 done 同时写入是原子的）：
    ```bash
-   node {{META_DIR}}/bin/status_manager.js append done --issue NNN \
-        --files "<文件列表>" --workspace-dir {{WORKSPACE}} --json
+   node "{{META_DIR}}/bin/status_manager.js" append done --issue NNNNNN \
+        --files "<文件列表>" --workspace-dir "{{WORKSPACE}}" --json
    ```
-   文件列表格式：`路径(变更类型)` 用逗号分隔，变更类型为 `new` / `mod` / `del`；路径必须是仓库根相对路径，用户项目文件统一写成 `workspace/...`。
+   文件列表格式：`路径(变更类型)` 用逗号分隔，变更类型为 `new` / `mod` / `del`；路径必须是仓库根相对路径，用户项目文件统一写成 `{{WORKSPACE}}/...`。
 10. **退出**。
 
 ## 异常处理
 
 - 测试或验证命令失败：修复代码后重试，最多重试 2 次。仍失败则用 status_manager append blocked 后退出：
   ```bash
-  node {{META_DIR}}/bin/status_manager.js append blocked --issue NNN \
-       --message "<原因>" --workspace-dir {{WORKSPACE}} --json
+  node "{{META_DIR}}/bin/status_manager.js" append blocked --issue NNNNNN \
+       --message "<原因>" --workspace-dir "{{WORKSPACE}}" --json
   ```
 - 不提前实现其它 issue 的新功能或产物。
 - 如果为了满足当前 issue 必须修改依赖代码、公共代码、旧调用方或测试工具，可以修改；但必须在 memo.md 记录原因、影响范围、涉及文件和验证命令，并在 done 的 files 列表中列出全部变更。
@@ -136,7 +155,7 @@
 不要自行遍历 `status.md` 判断全部完成。只有当 status_manager `next` 返回 `action: "touch-dev-done"` 时，才执行：
 
 ```bash
-touch {{WORKSPACE}}/dev.done
+touch "{{DEV_DONE}}"
 ```
 
 ## 输出风格

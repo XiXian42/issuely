@@ -1,98 +1,167 @@
 # Issuely
 
 > Issue-driven Agentic Development —— 用 issue 作为最小可交付单元，
-> dev/review 双 agent 串行接力，把一个想法跑成一个可交付项目。
+> 让 planner / dev / review 多 agent 接力，把一个想法推进到可交付项目。
 
-## 用法
+## 安装
 
-```bash
-./start.sh           # 交互模式：收集需求 → 规划 → 自动开发与审查
-./start.sh -c        # 续跑模式：跳过规划，直接重启 run_while
-./start.sh -h        # 帮助
-```
-
-初次克隆后建议运行一次以安装 git hooks（防止误提交 `workspace/`）：
+### macOS / Linux
 
 ```bash
-./.issuely/bin/install_hooks.sh
+curl -fsSL https://raw.githubusercontent.com/XiXian42/issuely/main/install.sh | bash
 ```
 
-第一次跑会问你 4 个问题（项目名、技术栈、规划深度 A/B、需求描述），然后 Planner agent
-把需求拆成 `workspace/docs/` 与 `workspace/issues/`，dev/review 双 agent 接力直到
-`workspace/dev.done` 与 `workspace/review.done` 双立。
+安装过程会：
 
-## 目录
+1. 安装 `issuely` 命令到 `~/.local/bin/issuely`
+2. 引导你选择 planner / dev / review 使用的 agent、模型和 thinking / effort
+3. 把全局默认配置写入 `~/.issuely/config.json`
 
-```
-./start.sh                       唯一用户入口
-./config.json                    项目配置（单一事实源；首次运行会生成）
-./config.example.json            配置模板
-./workspace/                     用户产物（gitignore，每次跑会重建）
-  docs/                          系统设计与规范（Planner 生成）
-  issues/                        有序任务包
-  src/, tests/, …                项目代码
-  status.md                      进度状态机（请勿手改）
-  memo.md, memo/                 项目记忆与经验文档
-./.issuely/                      框架代码（黑盒，可符号链接到全局位置）
-  bin/                           run_dev / run_review / run_while / status_manager
-  core_prompts/                  dev / review / planner 的 prompt 模板
-  lib/config.cjs                 配置加载器（single source of truth）
-  tests/e2e.sh                   端到端集成测试
-  logs/                          运行日志（gitignore）
-```
+前提：系统里至少已经安装一个支持的 agent。
 
-## 全局共享 `.issuely`
+## 支持的 Agent
 
-`.issuely` 可以是项目内目录，也可以是符号链接指向全局安装路径：
-
-```bash
-ln -s ~/issuely-framework ~/proj-A/.issuely
-ln -s ~/issuely-framework ~/proj-B/.issuely
-```
-
-或者在 start.sh 调用前显式 export：
-
-```bash
-ISSUELY_META_DIR=~/issuely-framework ./start.sh
-```
-
-## 仓库边界
-
-本仓库只包含 **框架代码**（`start.sh` + `.issuely/`）。以下东西永远不进入本仓库历史：
-
-- `workspace/` — 用户产物（是运行产出物，不是框架的一部分）
-- `config.json` — 项目实例配置（含用户需求描述）
-- `.issuely/logs/` — 运行日志
-- `*.done` — 完成标志
-
-上述路径均在 `.gitignore`。另外 pre-commit hook 会主动拦截 `workspace/`
-路径的任何提交（包括 `git add -f`），避免 agent 在开发过程中误伤框架仓库。
-
-## 配置 (`config.json`)
-
-| 字段 | 说明 | 默认 |
+| Agent | 模型参数 | thinking / effort 参数 |
 |---|---|---|
-| `projectName` | 项目名（人类可读） | `my-project` |
-| `workspace` | 工作区目录（相对项目根） | `workspace` |
-| `language` | 技术栈/语言（注入到 prompt） | `unspecified` |
-| `originalRequirement` | 原始需求描述 | `""` |
-| `models.dev` | dev agent 模型 | `openai-codex/gpt-5.5` |
-| `models.review` | review agent 模型 | `openrouter/anthropic/claude-sonnet-4.6` |
-| `models.planner` | planner 模型（null = 用 pi 默认） | `null` |
-| `tools` | 传给 pi 的 `--tools`（空 = 用 pi 默认） | `""` |
-| `piTrace` | 1=过滤 JSON 流；0=直出 stdout | `1` |
+| `pi` | `--model` | `--thinking` |
+| `omp` | `--model` | `--thinking` |
+| `claude` | `--model` | `--effort` |
+| `codex` | `--model` | `-c model_reasoning_effort=...` |
 
-## 测试
+## 使用
+
+在你想创建项目的目录执行：
+
+```bash
+mkdir my-project
+cd my-project
+issuely prd
+issuely issue
+issuely dev
+```
+
+常用命令：
+
+```bash
+issuely prd           # 收集 / 生成 PRD
+issuely issue         # 生成 / 重写 issue 包
+issuely issue refine  # 开发前 refine 复杂 issue
+issuely dev           # 启动 dev/review 流水线
+issuely config        # 修改 ~/.issuely/config.json（交互）
+issuely status        # 查看当前目录的有效配置与可用 agent
+issuely install-hooks # 为当前项目安装 git hooks
+```
+
+> `issuely` 默认把“当前目录”当作项目根，请在项目根运行。
+
+## 配置层级
+
+Issuely 现在有两层配置：
+
+1. **全局配置**：`~/.issuely/config.json`
+   - 放默认 agent / model / thinking / agent-specific runtime 选项
+2. **项目配置**：`./config.json`
+   - 放当前项目的 `workspace`、`projectName`、`language`，以及需要覆盖的 role 配置
+
+优先级：
+
+```text
+env overrides > project config.json > ~/.issuely/config.json > built-in defaults
+```
+
+## 全局配置示例
+
+```json
+{
+  "version": 1,
+  "roles": {
+    "planner": {
+      "agent": "pi",
+      "model": null,
+      "thinking": null
+    },
+    "dev": {
+      "agent": "pi",
+      "model": "openai-codex/gpt-5.5",
+      "thinking": "high"
+    },
+    "review": {
+      "agent": "claude",
+      "model": "sonnet",
+      "thinking": "high"
+    }
+  },
+  "agents": {
+    "pi": {
+      "tools": "",
+      "trace": 1
+    },
+    "omp": {
+      "tools": ""
+    },
+    "claude": {
+      "permissionMode": "dontAsk"
+    },
+    "codex": {
+      "sandbox": "workspace-write",
+      "approval": "never"
+    }
+  }
+}
+```
+
+## 项目配置示例
+
+```json
+{
+  "projectName": "my-project",
+  "workspace": "workspace",
+  "language": "Rust",
+  "roles": {
+    "review": {
+      "model": "claude-sonnet-4-6",
+      "thinking": "xhigh"
+    }
+  }
+}
+```
+
+## 目录约定
+
+```text
+./config.json                    项目配置（项目级覆盖）
+./workspace/                     用户产物
+  docs/                          PRD / spec / coding-style / tracking docs
+  issues/                        有序任务包
+  src/, tests/, ...              项目代码
+  status.md                      进度状态机（由工具维护）
+  memo.md, memo/                 项目记忆与经验文档
+  logs/                          运行日志与验收报告
+```
+
+框架代码来自安装目录；项目里不再要求放置 `start.sh` 或 `.issuely` 软链。
+
+## 兼容模式
+
+如果你已经在旧项目里放了：
+
+- `./start.sh`
+- `./.issuely`
+
+它们仍可继续工作。`./start.sh` 仍是兼容入口；新推荐入口是 `issuely`。
+
+## 开发与测试
+
+框架仓库自测：
 
 ```bash
 .issuely/tests/e2e.sh
 ```
 
-用 fake pi（无真实 LLM 调用）覆盖：config 加载、符号链接、PI_TOOLS 切换、
-完整 run_while 流水线、续跑模式、空项目错误处理。
+覆盖内容包括：
 
-## 方法论
-
-参见 `issue-driven-agentic-development.md`（如已纳入仓库），核心约束：
-每轮 agent 只做一个 issue，状态机由工具维护，dev/review 严格分离，
-全部完成才能 touch 顶层 `.done` 标志。
+- config 加载与路径解析
+- 全局配置 + 项目配置合并
+- `.issuely` 符号链接与全局安装路径
+- run_while 调度 + dev/review 串行推进
+- `issuely` 包装入口

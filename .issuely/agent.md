@@ -7,42 +7,44 @@
 ## 1. 路径与数据边界
 
 - `.issuely/` 只放 Issuely 引擎文件、prompt、脚本和通用规则；禁止写入用户项目数据。
-- 用户项目数据全部放在 `workspace/` 下，包括：
-  - `workspace/docs/`
-  - `workspace/issues/`
-  - `workspace/status.md`
-  - `workspace/memo.md`
-  - `workspace/memo/`
-  - `workspace/logs/`
-  - `workspace/dev.done`
-  - `workspace/review.done`
-- 代码、测试、配置、构建文件也都在 `workspace/` 下。
+- 用户项目数据全部放在 `{{WORKSPACE}}/` 下，包括：
+  - `{{DOCS_DIR}}/`
+  - `{{ISSUES_DIR}}/`
+  - `{{STATUS_PATH}}`
+  - `{{MEMO_PATH}}`
+  - `{{WORKSPACE}}/memo/`
+  - `{{LOG_DIR}}/`
+  - `{{DEV_DONE}}`
+  - `{{REVIEW_DONE}}`
+- 代码、测试、配置、构建文件也都在 `{{WORKSPACE}}/` 下。
+- `{{DOCS_DIR}}/prd.md`、`{{DOCS_DIR}}/spec-project.md`、`{{DOCS_DIR}}/coding-style.md` 和其它普通 docs 文档是冻结规划文档，dev/review 阶段不得修改。
+- 只有文件名匹配 `{{DOCS_DIR}}/_tracking-*.md` 的执行跟踪文档可在 dev/review 阶段新建或修改；不要为 tracking 新增子目录。
 - 产物文件中禁止写入本机绝对路径，例如 `/Users/...`、`/tmp/...`。文档、issue、status、memo、源码和测试中只使用相对路径。
 
 ## 2. Shell 命令与文件扫描
 
 - 读取普通文本文件优先使用 `read` 工具，不要用 `bash cat` / `sed` 代替读取。
-- `bash` 工具只接收 `command` / `timeout` 参数，不支持 `workdir` 参数；需要在 workspace 下运行命令时，必须写成 `cd workspace && <command>`。
-- 避免裸用大范围 `find workspace`、`ls -R`、`grep -R`。
+- `bash` 工具只接收 `command` / `timeout` 参数，不支持 `workdir` 参数；需要在 workspace 下运行命令时，必须写成 `cd {{WORKSPACE}} && <command>`。
+- 避免裸用大范围 `find {{WORKSPACE}}`、`ls -R`、`grep -R`。
 - 扫描文件时必须排除大型或生成目录：
-  - `workspace/node_modules/`
-  - `workspace/.next/`
-  - `workspace/logs/`
-  - `workspace/dist/`
-  - `workspace/build/`
+  - `{{WORKSPACE}}/node_modules/`
+  - `{{WORKSPACE}}/.next/`
+  - `{{LOG_DIR}}/`
+  - `{{WORKSPACE}}/dist/`
+  - `{{WORKSPACE}}/build/`
   - coverage 输出目录
 - 推荐只扫描必要目录，例如：
   ```bash
-  find workspace/src workspace/tests workspace/docs workspace/issues -type f | sort
+  find {{WORKSPACE}}/src {{WORKSPACE}}/tests {{DOCS_DIR}} {{ISSUES_DIR}} -type f | sort
   ```
 - 如确实需要扫描整个工作区，使用 prune：
   ```bash
-  find workspace \
-    -path workspace/node_modules -prune -o \
-    -path workspace/.next -prune -o \
-    -path workspace/logs -prune -o \
-    -path workspace/dist -prune -o \
-    -path workspace/build -prune -o \
+  find {{WORKSPACE}} \
+    -path {{WORKSPACE}}/node_modules -prune -o \
+    -path {{WORKSPACE}}/.next -prune -o \
+    -path {{LOG_DIR}} -prune -o \
+    -path {{WORKSPACE}}/dist -prune -o \
+    -path {{WORKSPACE}}/build -prune -o \
     -type f -print | sort
   ```
 - 命令输出要尽量短。成功时只保留必要摘要；失败时再保留关键错误。
@@ -124,13 +126,13 @@
 - 如果发现 PRD / v0 / 当前验收目标内的问题，Dev agent 应直接修复并继续验收，直到通过或确实无法继续。
 - 不允许把 v0 必须完成的问题只写入 memo todo 后跳过。
 - E2E 不要求写成项目代码或 npm script；UI 项目应优先使用浏览器自动化工具（如 agent-browser）由 agent 自主操作并判断结论，API 项目使用真实 HTTP 请求，CLI 项目使用真实 shell 命令。
-- 验收类 issue 可写简短验收报告到 `workspace/logs/NNN-acceptance.md`，记录启动命令、测试账号/数据、关键 URL 或命令、覆盖路径、发现并修复的问题、最终结论。
+- 验收类 issue 可写简短验收报告到 `{{LOG_DIR}}/NNNNNN-acceptance.md`，记录启动命令、测试账号/数据、关键 URL 或命令、覆盖路径、发现并修复的问题、最终结论。
 - 如果验收类 issue 修改了业务代码、入口、配置或测试工具，必须在 status files 中完整列出，并在 memo 记录影响范围和验证方式。
 - Review agent 对验收类 issue 采用 fast path：必须记录 `review-begin` 和 `reviewed`，但不默认重复完整 E2E / full verification；重点检查 dev 的验收证据、覆盖范围、未关闭 todo 和代码变更风险。
 
 ## 6. memo todo / mock / placeholder 规则
 
-任何 agent 如果引入或发现以下内容，必须写入 `workspace/memo.md` 的 `todo` 条目：
+任何 agent 如果引入或发现以下内容，必须写入 `{{MEMO_PATH}}` 的 `todo` 条目：
 
 - TODO / FIXME / 待实现。
 - mock / fake / stub 数据或服务。
@@ -155,8 +157,8 @@ Todo / Mock / Placeholder Audit issue 必须读取 memo todo，并扫描代码�
 
 ## 8. memo.md / memo/ 规范
 
-- `workspace/memo.md` 是项目记忆和经验索引，不是过程流水账。
-- `workspace/memo/` 存放可复用的专题经验文档。
+- `{{MEMO_PATH}}` 是项目记忆和经验索引，不是过程流水账。
+- `{{WORKSPACE}}/memo/` 存放可复用的专题经验文档。
 - 适合写入 memo 的内容：
   - 非显而易见的工程决策。
   - 已验证的失败路线。
@@ -190,8 +192,8 @@ Todo / Mock / Placeholder Audit issue 必须读取 memo todo，并扫描代码�
   - 与当前 issue 的目标、验收或抽象复用直接相关。
   - 不引入未来 issue 的新业务能力。
   - 运行当前 issue 相关测试；修改旧调用方时，也运行旧调用方相关测试。
-  - 在 `workspace/memo.md` 记录原因、涉及文件、影响范围和验证命令。
-  - 在 status 的 files 列表中列出所有变更文件；路径必须是仓库根相对路径，用户项目文件统一写成 `workspace/...`。
+  - 在 `{{MEMO_PATH}}` 记录原因、涉及文件、影响范围和验证命令。
+  - 在 status 的 files 列表中列出所有变更文件；路径必须是仓库根相对路径，用户项目文件统一写成 `{{WORKSPACE}}/...`。
 - 如果发现后续 issue 的问题，记录到 memo 或在 review 中指出，但不要提前完成后续 issue 的产物。
 - 不为了让测试通过而修改 issue 定义。
 
@@ -200,7 +202,7 @@ Todo / Mock / Placeholder Audit issue 必须读取 memo todo，并扫描代码�
 - Issue 生成阶段应提前预判可能复用的领域模型、接口契约、基础组件、测试工具和横切能力。
 - 如果某个通用能力是多个后续 issue 的真实依赖，可以单独生成前置 issue 来建立它。
 - 如果只是可能复用但尚无第二个真实调用方，先在 spec 或 memo 记录为 `candidate-common`，不要过早抽象。
-- Dev 或 Review 完成通用组件 / 通用模型抽取后，必须在 `workspace/memo.md` 记录到 `extracted-common`：
+- Dev 或 Review 完成通用组件 / 通用模型抽取后，必须在 `{{MEMO_PATH}}` 记录到 `extracted-common`：
   - 文件位置。
   - 主要功能。
   - 当前调用方。
@@ -213,9 +215,20 @@ Todo / Mock / Placeholder Audit issue 必须读取 memo todo，并扫描代码�
 - 简单模式默认只做 MVP。
 - 禁止在简单模式中主动加入登录、权限、成员系统、邮件、支付、复杂持久化、复杂 e2e，除非用户明确要求。
 - issue 应小而可验收，每个 issue 都要有明确检查命令。
+- issue 文件名默认使用六位编号并按 100 递增，例如 `000100-bootstrap.md`、`000200-login-flow.md`；编号只要求递增排序，不要求连续，开发前 refine 可在同一百位段插入 `000201`、`000202` 等 issue。
 - 业务 issue 优先是纵向薄切片：能接入真实流程，产生可见行为变化。
 - 技术支撑、契约、组件、通用能力 issue 必须说明服务哪个业务闭环或真实消费方。
 - 复杂功能必须规划集成 / 冒烟 / E2E 类 issue，避免局部都完成但系统串不起来。
+- 预计单个 issue 代码改动超过 300-500 LOC，或跨多个业务层、角色、权限、状态流转、外部集成、主流程验收的复杂业务 issue，应在标题下标记 `[complex-issue]`，供开发前 `issue refine` 逐个拆细；refine 后不得残留该标记。
 - 包含 UI/API/CLI 主流程的项目，尾部应规划主流程 integration smoke、todo/mock/placeholder audit、入口/路由/链接可达性 hardening、final acceptance verification。
 - issue 应说明前置依赖、相关回归和后续消费；验收类 issue 必须列出覆盖的业务 issue。
 - Planner / Issue agent 输出的检查命令必须与项目语言、模块系统和运行方式一致；UI E2E 不要求写成代码脚本，可由 agent 使用浏览器工具自主执行并产出验收报告。
+
+## 13. Issue 语义完成原则
+
+- 结构有效不等于行为正确：文件存在、命令退出码 0、状态码 200、JSON 可解析、zip/package 可打开，只能作为最低证据，不能单独证明完成。
+- 每个 issue 的完成标准必须尽量能区分真实成功、空成功、静默 fallback、只实现 producer API 但主流程未消费、mock/stub/placeholder 伪成功。
+- 能力型 issue 必须写清楚真实消费方；消费方 issue 必须证明已接入前置能力。
+- 集成、冒烟、验收类 issue 必须从真实入口验证，而不是只调用内部函数。
+- 如果是 port / migration / compatibility 项目，必须保留代表性原始样例或 parity probe；不要求 byte-for-byte，但要比较关键结构、行为或错误模式。
+- fallback 必须可观测：错误、返回值、日志、报告或测试断言中必须能看到 fallback 原因；不得静默吞掉。

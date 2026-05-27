@@ -1,11 +1,6 @@
 # shellcheck shell=bash
-# Issuely runner 共享函数：
-#   - issuely_load_config  从项目 config.json 加载所有路径与默认值
-#   - render_prompt        把 .tpl 中的 {{VAR}} 占位用 env 注入 (防注入)
-#   - run_pi_prompt        调用 pi (按 PI_TRACE 决定是否过滤 JSON 流)
+# Shared Issuely runner helpers.
 
-# 加载配置：要求调用方已经 export 了 ISSUELY_PROJECT_DIR / ISSUELY_META_DIR。
-# 没有就尝试从脚本相对路径推断 (.issuely/bin/_runner.sh → .issuely → 项目根)。
 issuely_load_config() {
   if [ -z "${ISSUELY_META_DIR:-}" ]; then
     local self
@@ -14,8 +9,6 @@ issuely_load_config() {
     export ISSUELY_META_DIR
   fi
   if [ -z "${ISSUELY_PROJECT_DIR:-}" ]; then
-    # 默认回退：META_DIR 的上一级。但如果 .issuely 是符号链接指向全局共享目录，
-    # 这条路径就不对——因此推荐 start.sh 显式 export ISSUELY_PROJECT_DIR。
     if [ -L "$ISSUELY_META_DIR" ] || [ "$(dirname "$ISSUELY_META_DIR")" = "/" ]; then
       echo "[runner] ISSUELY_PROJECT_DIR is required when .issuely is a symlink or global path." >&2
       return 1
@@ -23,9 +16,12 @@ issuely_load_config() {
     ISSUELY_PROJECT_DIR="$(cd "$ISSUELY_META_DIR/.." && pwd)"
     export ISSUELY_PROJECT_DIR
   fi
-  # 调用 Node config 加载器，eval 输出
+  local shell_env
+  if ! shell_env="$(node "$ISSUELY_META_DIR/lib/config.cjs" print-shell)"; then
+    return 1
+  fi
   # shellcheck disable=SC1090
-  eval "$(node "$ISSUELY_META_DIR/lib/config.cjs" print-shell)"
+  eval "$shell_env"
 }
 
 timestamp_stream() {
@@ -43,9 +39,6 @@ rl.on("line",(line)=>{
 '
 }
 
-# render_prompt <tpl_path> <out_path>
-# 先加载 .issuely/agent.md，再加载角色 prompt。
-# prompt 里只注入可移植相对路径，避免把本机绝对路径写进日志或项目产物。
 render_prompt() {
   local tpl="$1" out="$2"
   TPL_FILE="$tpl" OUT_FILE="$out" AGENT_RULES_FILE="$META_DIR/agent.md" \
@@ -58,11 +51,20 @@ const globalRules = fs.existsSync(process.env.AGENT_RULES_FILE)
 const roleTpl = fs.readFileSync(process.env.TPL_FILE, "utf8");
 const tpl = globalRules ? `${globalRules}\n\n---\n\n${roleTpl}` : roleTpl;
 const map = {
-  WORKSPACE:    "workspace",
-  META_DIR:     ".issuely",
-  ISSUES_DIR:   "workspace/issues",
+  WORKSPACE:    process.env.WORKSPACE_REL || "workspace",
+  META_DIR:     process.env.META_DIR_REF || ".issuely",
+  ISSUES_DIR:   process.env.ISSUES_DIR_REL || `${process.env.WORKSPACE_REL || "workspace"}/issues`,
+  DOCS_DIR:     process.env.DOCS_DIR_REL || `${process.env.WORKSPACE_REL || "workspace"}/docs`,
+  STATUS_PATH:  process.env.STATUS_PATH_REL || `${process.env.WORKSPACE_REL || "workspace"}/status.md`,
+  MEMO_PATH:    process.env.MEMO_PATH_REL || `${process.env.WORKSPACE_REL || "workspace"}/memo.md`,
+  LOG_DIR:      process.env.LOG_DIR_REL || `${process.env.WORKSPACE_REL || "workspace"}/logs`,
+  DEV_DONE:     process.env.DEV_DONE_REL || `${process.env.WORKSPACE_REL || "workspace"}/dev.done`,
+  REVIEW_DONE:  process.env.REVIEW_DONE_REL || `${process.env.WORKSPACE_REL || "workspace"}/review.done`,
   PROJECT_NAME: process.env.PROJECT_NAME || "",
-  LANGUAGE:     process.env.LANGUAGE     || ""
+  LANGUAGE:     process.env.LANGUAGE     || "",
+  REFINE_ISSUE_FILE:   process.env.REFINE_ISSUE_FILE   || "",
+  REFINE_ISSUE_NUMBER: process.env.REFINE_ISSUE_NUMBER || "",
+  REFINE_ROUND:        process.env.REFINE_ROUND        || ""
 };
 const out = tpl.replace(/\{\{(\w+)\}\}/g, (_, k) =>
   Object.prototype.hasOwnProperty.call(map, k) ? map[k] : `{{${k}}}`
@@ -71,19 +73,77 @@ fs.writeFileSync(process.env.OUT_FILE, out);
 RENDER_PROMPT
 }
 
-# run_pi_prompt <prompt_path> <log_tag> <model_or_empty>
-# - PI_TOOLS  非空时附加 --tools；空时 pi 走默认 (read,bash,edit,write)
-# - PI_TRACE=1 时过滤 JSON 事件流；否则走原始 stdout
+role_agent() {
+  case "$1" in
+    planner) printf '%s' "${PLANNER_AGENT:-pi}" ;;
+    dev) printf '%s' "${DEV_AGENT:-pi}" ;;
+    review) printf '%s' "${REVIEW_AGENT:-pi}" ;;
+    *) echo "[runner] unknown role for agent lookup: $1" >&2; return 1 ;;
+  esac
+}
+
+role_model() {
+  case "$1" in
+    planner) printf '%s' "${PLANNER_MODEL:-}" ;;
+    dev) printf '%s' "${DEV_MODEL:-}" ;;
+    review) printf '%s' "${REVIEW_MODEL:-}" ;;
+    *) echo "[runner] unknown role for model lookup: $1" >&2; return 1 ;;
+  esac
+}
+
+role_thinking() {
+  case "$1" in
+    planner) printf '%s' "${PLANNER_THINKING:-}" ;;
+    dev) printf '%s' "${DEV_THINKING:-}" ;;
+    review) printf '%s' "${REVIEW_THINKING:-}" ;;
+    *) echo "[runner] unknown role for thinking lookup: $1" >&2; return 1 ;;
+  esac
+}
+
+role_summary() {
+  local role="$1"
+  local agent model thinking
+  agent="$(role_agent "$role")" || return 1
+  model="$(role_model "$role")" || return 1
+  thinking="$(role_thinking "$role")" || return 1
+  printf '%s' "$agent"
+  [ -n "$model" ] && printf ' model=%s' "$model"
+  [ -n "$thinking" ] && printf ' thinking=%s' "$thinking"
+}
+
+validate_thinking_for_agent() {
+  local agent="$1" thinking="$2"
+  [ -z "$thinking" ] && return 0
+  case "$agent:$thinking" in
+    pi:off|pi:minimal|pi:low|pi:medium|pi:high|pi:xhigh) return 0 ;;
+    omp:minimal|omp:low|omp:medium|omp:high|omp:xhigh) return 0 ;;
+    claude:low|claude:medium|claude:high|claude:xhigh|claude:max) return 0 ;;
+    codex:*) return 0 ;;
+    *)
+      echo "[runner] invalid thinking/effort '$thinking' for agent '$agent'" >&2
+      return 1
+      ;;
+  esac
+}
+
+ensure_agent_available() {
+  local agent="$1"
+  if ! command -v "$agent" >/dev/null 2>&1; then
+    echo "[runner] configured agent '$agent' not found in PATH" >&2
+    return 1
+  fi
+}
+
 run_pi_prompt() {
-  local prompt_file="$1" tag="$2" model="$3"
+  local prompt_text="$1" tag="$2" model="$3" thinking="$4"
   local args=(--no-session)
   [ -n "${PI_TOOLS:-}" ] && args+=(--tools "$PI_TOOLS")
   [ -n "$model" ] && args+=(--model "$model")
-
+  [ -n "$thinking" ] && args+=(--thinking "$thinking")
   if [ "${PI_TRACE:-1}" = "1" ]; then
     echo "[$tag] pi trace: on (--mode json, filtered)"
     if command -v jq >/dev/null 2>&1; then
-      (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" --mode json -p "$(cat "$prompt_file")") | jq --unbuffered -r '
+      (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" --mode json -p "$prompt_text") | jq --unbuffered -r '
         if .type == "turn_start" then "[turn:start]"
         elif .type == "turn_end" then "[turn:end]"
         elif .type == "agent_end" then "[agent:end]"
@@ -95,9 +155,115 @@ run_pi_prompt() {
       ' | timestamp_stream
     else
       echo "[$tag] jq not found; falling back to raw stream"
-      (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" --mode json -p "$(cat "$prompt_file")")
+      (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" -p "$prompt_text")
     fi
   else
-    (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" -p "$(cat "$prompt_file")")
+    (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" -p "$prompt_text")
   fi
+}
+
+run_omp_prompt() {
+  local prompt_text="$1" model="$2" thinking="$3"
+  local args=(--no-session)
+  [ -n "${OMP_TOOLS:-}" ] && args+=(--tools "$OMP_TOOLS")
+  [ -n "$model" ] && args+=(--model "$model")
+  [ -n "$thinking" ] && args+=(--thinking "$thinking")
+  (cd "$ISSUELY_PROJECT_DIR" && omp "${args[@]}" -p "$prompt_text")
+}
+
+run_claude_prompt() {
+  local prompt_text="$1" model="$2" thinking="$3"
+  local args=(--print --output-format text --no-session-persistence)
+  [ -n "$model" ] && args+=(--model "$model")
+  [ -n "$thinking" ] && args+=(--effort "$thinking")
+  [ -n "${CLAUDE_PERMISSION_MODE:-}" ] && args+=(--permission-mode "$CLAUDE_PERMISSION_MODE")
+  (cd "$ISSUELY_PROJECT_DIR" && claude "${args[@]}" "$prompt_text")
+}
+
+run_codex_prompt() {
+  local prompt_text="$1" model="$2" thinking="$3"
+  local args=(exec --skip-git-repo-check --ephemeral)
+  [ -n "$model" ] && args+=(--model "$model")
+  [ -n "$thinking" ] && args+=(-c "model_reasoning_effort=\"$thinking\"")
+  [ -n "${CODEX_SANDBOX:-}" ] && args+=(--sandbox "$CODEX_SANDBOX")
+  [ -n "${CODEX_APPROVAL:-}" ] && args+=(--ask-for-approval "$CODEX_APPROVAL")
+  (cd "$ISSUELY_PROJECT_DIR" && printf '%s' "$prompt_text" | codex "${args[@]}" -)
+}
+
+run_role_prompt() {
+  local role="$1" prompt_file="$2" tag="$3"
+  local agent model thinking prompt_text
+  agent="$(role_agent "$role")" || return 1
+  model="$(role_model "$role")" || return 1
+  thinking="$(role_thinking "$role")" || return 1
+  validate_thinking_for_agent "$agent" "$thinking" || return 1
+  ensure_agent_available "$agent" || return 1
+  prompt_text="$(cat "$prompt_file")"
+  case "$agent" in
+    pi) run_pi_prompt "$prompt_text" "$tag" "$model" "$thinking" ;;
+    omp) run_omp_prompt "$prompt_text" "$model" "$thinking" ;;
+    claude) run_claude_prompt "$prompt_text" "$model" "$thinking" ;;
+    codex) run_codex_prompt "$prompt_text" "$model" "$thinking" ;;
+    *) echo "[runner] unsupported agent: $agent" >&2; return 1 ;;
+  esac
+}
+
+run_pi_interactive() {
+  local system_prompt="$1" message="$2" model="$3" thinking="$4"
+  local args=()
+  [ -n "${PI_TOOLS:-}" ] && args+=(--tools "$PI_TOOLS")
+  [ -n "$model" ] && args+=(--model "$model")
+  [ -n "$thinking" ] && args+=(--thinking "$thinking")
+  (cd "$ISSUELY_PROJECT_DIR" && pi "${args[@]}" --system-prompt "$system_prompt" "$message")
+}
+
+run_omp_interactive() {
+  local system_prompt="$1" message="$2" model="$3" thinking="$4"
+  local args=()
+  [ -n "${OMP_TOOLS:-}" ] && args+=(--tools "$OMP_TOOLS")
+  [ -n "$model" ] && args+=(--model "$model")
+  [ -n "$thinking" ] && args+=(--thinking "$thinking")
+  (cd "$ISSUELY_PROJECT_DIR" && omp "${args[@]}" --system-prompt "$system_prompt" "$message")
+}
+
+run_claude_interactive() {
+  local system_prompt="$1" message="$2" model="$3" thinking="$4"
+  local args=()
+  [ -n "$model" ] && args+=(--model "$model")
+  [ -n "$thinking" ] && args+=(--effort "$thinking")
+  [ -n "${CLAUDE_PERMISSION_MODE:-}" ] && args+=(--permission-mode "$CLAUDE_PERMISSION_MODE")
+  (cd "$ISSUELY_PROJECT_DIR" && claude "${args[@]}" --system-prompt "$system_prompt" "$message")
+}
+
+run_codex_interactive() {
+  local system_prompt="$1" message="$2" model="$3" thinking="$4"
+  local combined_prompt
+  combined_prompt="$system_prompt
+
+---
+
+$message"
+  local args=()
+  [ -n "$model" ] && args+=(--model "$model")
+  [ -n "$thinking" ] && args+=(-c "model_reasoning_effort=\"$thinking\"")
+  [ -n "${CODEX_SANDBOX:-}" ] && args+=(--sandbox "$CODEX_SANDBOX")
+  [ -n "${CODEX_APPROVAL:-}" ] && args+=(--ask-for-approval "$CODEX_APPROVAL")
+  (cd "$ISSUELY_PROJECT_DIR" && codex "${args[@]}" "$combined_prompt")
+}
+
+run_role_interactive() {
+  local role="$1" system_prompt="$2" message="$3"
+  local agent model thinking
+  agent="$(role_agent "$role")" || return 1
+  model="$(role_model "$role")" || return 1
+  thinking="$(role_thinking "$role")" || return 1
+  validate_thinking_for_agent "$agent" "$thinking" || return 1
+  ensure_agent_available "$agent" || return 1
+  case "$agent" in
+    pi) run_pi_interactive "$system_prompt" "$message" "$model" "$thinking" ;;
+    omp) run_omp_interactive "$system_prompt" "$message" "$model" "$thinking" ;;
+    claude) run_claude_interactive "$system_prompt" "$message" "$model" "$thinking" ;;
+    codex) run_codex_interactive "$system_prompt" "$message" "$model" "$thinking" ;;
+    *) echo "[runner] unsupported agent: $agent" >&2; return 1 ;;
+  esac
 }

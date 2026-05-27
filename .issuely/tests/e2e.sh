@@ -36,6 +36,11 @@ assert_file_exists() {
   else ng "missing: $1"; fi
 }
 
+assert_file_not_exists() {
+  if [ ! -e "$1" ]; then ok "absent: $1"
+  else ng "unexpected file: $1"; fi
+}
+
 # ─────────────────────────────────────────────────────────────────────────
 # 工具：构造一个假的 pi，按 prompt 内容驱动状态机（无需真 LLM）
 # ─────────────────────────────────────────────────────────────────────────
@@ -71,6 +76,22 @@ fi
 
 WORKSPACE="${WORKSPACE:-}"
 META_DIR="${META_DIR:-}"
+
+if echo "$PROMPT" | grep -q "Issue Refine Agent"; then
+  issue_file="${REFINE_ISSUE_FILE:-}"
+  if [ -z "$issue_file" ]; then
+    issue_file="$(printf '%s\n' "$PROMPT" | sed -n 's/.*issue：`\([^`]*\)`.*/\1/p' | head -n 1)"
+  fi
+  if [ -n "$issue_file" ] && [ -f "$WORKSPACE/issues/$issue_file" ]; then
+    perl -0pi -e 's/^\[complex-issue\]\n\n?//m' "$WORKSPACE/issues/$issue_file"
+    {
+      echo
+      echo "## refined $issue_file"
+      echo "- removed [complex-issue]"
+    } >> "$WORKSPACE/docs/issue-refine-report.md"
+  fi
+  exit 0
+fi
 
 # 从 prompt 推 role
 ROLE="unknown"
@@ -160,9 +181,48 @@ out="$(ISSUELY_PROJECT_DIR="$PROJ1" node "$META_SRC/lib/config.cjs" print-shell)
 echo "$out" | grep -q "PROJECT_NAME='demo'" && ok "config write+read project name" || ng "project name"
 echo "$out" | grep -q "LANGUAGE='Python'" && ok "config write+read language" || ng "language"
 echo "$out" | grep -q "WORKSPACE='$PROJ1/ws'" && ok "config write+read workspace" || ng "workspace path"
+echo "$out" | grep -q "WORKSPACE_REL='ws'" && ok "config exports workspace relative path" || ng "workspace rel"
+echo "$out" | grep -q "DOCS_DIR_REL='ws/docs'" && ok "config exports docs relative path" || ng "docs rel"
 # 确保 config.json 中是相对路径 (可移植)
 grep -q '"workspace": "ws"' "$PROJ1/config.json" && ok "workspace stored as relative" \
   || ng "workspace should be relative in config.json"
+GLOBAL_HOME="$TMP_ROOT/home"
+mkdir -p "$GLOBAL_HOME/.issuely"
+cat > "$GLOBAL_HOME/.issuely/config.json" <<'JSON'
+{
+  "roles": {
+    "planner": {
+      "agent": "omp",
+      "model": "planner-model",
+      "thinking": "medium"
+    },
+    "review": {
+      "agent": "claude",
+      "model": "review-model",
+      "thinking": "high"
+    }
+  }
+}
+JSON
+out="$(HOME="$GLOBAL_HOME" ISSUELY_PROJECT_DIR="$PROJ1" node "$META_SRC/lib/config.cjs" print-shell)"
+echo "$out" | grep -q "PLANNER_AGENT='omp'" && ok "global config overrides planner agent" || ng "planner agent global override"
+echo "$out" | grep -q "PLANNER_MODEL='planner-model'" && ok "global config overrides planner model" || ng "planner model global override"
+echo "$out" | grep -q "REVIEW_AGENT='claude'" && ok "global config overrides review agent" || ng "review agent global override"
+echo "$out" | grep -q "REVIEW_THINKING='high'" && ok "global config exports review thinking" || ng "review thinking global override"
+
+PROJ_UNSAFE="$TMP_ROOT/proj-unsafe"
+mkdir -p "$PROJ_UNSAFE"
+ln -s "$META_SRC" "$PROJ_UNSAFE/.issuely"
+echo '{"workspace":".."}' > "$PROJ_UNSAFE/config.json"
+set +e
+out="$(ISSUELY_PROJECT_DIR="$PROJ_UNSAFE" node "$META_SRC/lib/config.cjs" print-shell 2>&1)"
+rc=$?
+set -e
+if [ "$rc" -ne 0 ] && echo "$out" | grep -q "unsafe workspace path"; then
+  ok "config rejects workspace outside project"
+else
+  ng "unsafe workspace should be rejected (rc=$rc, out=$out)"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────
 # 2. .issuely 符号链接 / 全局共享 (B)
@@ -174,6 +234,12 @@ note "2. .issuely as symlink (global share)"
 out="$(ISSUELY_PROJECT_DIR="$PROJ1" node "$META_SRC/lib/config.cjs" print-shell)"
 echo "$out" | grep -q "META_DIR='$META_SRC'" && ok "META_DIR resolves through symlink" \
   || ng "META_DIR resolution: $(echo "$out" | grep META_DIR)"
+WRAPPER_OUT="$(cd "$PROJ1" && HOME="$GLOBAL_HOME" ISSUELY_META_DIR="$META_SRC" "$REPO_ROOT/bin/issuely" status)"
+if echo "$WRAPPER_OUT" | grep -q "global config :" && echo "$WRAPPER_OUT" | grep -q "review-model"; then
+  ok "issuely status shows merged role config"
+else
+  ng "issuely status should show merged config"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────
 # 3. PI_TOOLS 默认空：run_pi_prompt 不应附加 --tools
@@ -241,6 +307,39 @@ else
   echo "----- fake-pi log -----"
   cat "$FAKE_LOG"
   echo "-----"
+fi
+
+PROJ_CUSTOM="$TMP_ROOT/proj-custom-workspace"
+mkdir -p "$PROJ_CUSTOM/ws/issues"
+ln -s "$META_SRC" "$PROJ_CUSTOM/.issuely"
+cat > "$PROJ_CUSTOM/ws/issues/000-stub.md" <<'ISS'
+# Issue 000 — stub
+## 目标
+custom workspace
+## 不做什么
+none
+## 输入 / 依赖
+none
+## 输出 / 产物
+src/custom.txt(new)
+## 检查方法
+true
+## 完成标准
+passed
+ISS
+echo '{"workspace":"ws","tools":""}' > "$PROJ_CUSTOM/config.json"
+FAKE_LOG="$TMP_ROOT/fake-pi-custom-workspace.log"
+: > "$FAKE_LOG"
+ISSUELY_FAKE_LOG="$FAKE_LOG" \
+ISSUELY_PROJECT_DIR="$PROJ_CUSTOM" \
+PATH="$FAKE_BIN:$PATH" \
+"$META_SRC/bin/run_dev.sh" >/dev/null 2>&1 || true
+assert_file_exists "$PROJ_CUSTOM/ws/status.md"
+assert_file_not_exists "$PROJ_CUSTOM/workspace/status.md"
+if grep -q -- '--workspace-dir "ws"' "$FAKE_LOG"; then
+  ok "prompt renders custom workspace path"
+else
+  ng "prompt should render custom workspace path"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -350,6 +449,260 @@ else
   ng "start.sh dev should error without issues/ (rc=$rc, out=$out)"
 fi
 
+# ─────────────────────────────────────────────────────────────────────────
+# 7. 六位 issue 编号与 issue refine
+# ─────────────────────────────────────────────────────────────────────────
+note "7. six-digit issues and issue refine"
+
+PROJ_REFINE="$TMP_ROOT/proj-refine"
+mkdir -p "$PROJ_REFINE"
+ln -s "$META_SRC" "$PROJ_REFINE/.issuely"
+echo '{"workspace":"workspace","tools":""}' > "$PROJ_REFINE/config.json"
+mkdir -p "$PROJ_REFINE/workspace/issues" "$PROJ_REFINE/workspace/docs"
+echo "# prd" > "$PROJ_REFINE/workspace/docs/prd.md"
+echo "# spec" > "$PROJ_REFINE/workspace/docs/spec-project.md"
+echo "# style" > "$PROJ_REFINE/workspace/docs/coding-style.md"
+cat > "$PROJ_REFINE/workspace/issues/000100-bootstrap.md" <<'ISS'
+# Issue 000100 — bootstrap
+
+## 目标
+bootstrap
+
+## 不做什么
+
+## 输入 / 依赖
+
+## 相关 issue
+
+## 输出 / 产物
+workspace/src/bootstrap.txt(new)
+
+## 集成要求
+
+## 检查方法
+true
+
+## 完成标准
+passed
+ISS
+cat > "$PROJ_REFINE/workspace/issues/000200-complex-flow.md" <<'ISS'
+# Issue 000200 — complex flow
+
+[complex-issue]
+
+## 目标
+complex
+
+## 不做什么
+
+## 输入 / 依赖
+
+## 相关 issue
+
+## 输出 / 产物
+workspace/src/flow.txt(new)
+
+## 集成要求
+
+## 检查方法
+true
+
+## 完成标准
+passed
+ISS
+
+v="$(node "$META_SRC/bin/status_manager.js" validate --workspace-dir "$PROJ_REFINE/workspace" --json)"
+echo "$v" | grep -q '"ok": true' && ok "validate accepts six-digit issue files" || { ng "six-digit validate failed: $v"; }
+
+FAKE_LOG="$TMP_ROOT/fake-pi-refine.log"
+: > "$FAKE_LOG"
+ISSUELY_FAKE_LOG="$FAKE_LOG" \
+ISSUELY_PROJECT_DIR="$PROJ_REFINE" \
+PATH="$FAKE_BIN:$PATH" \
+"$REPO_ROOT/start.sh" issue refine >"$TMP_ROOT/refine.out" 2>&1
+rc=$?
+assert_eq "$rc" "0" "start.sh issue refine exits 0"
+if grep -Rsl -- '^\[complex-issue\]$' "$PROJ_REFINE/workspace/issues" >/dev/null 2>&1; then
+  ng "issue refine should remove all [complex-issue] markers"
+else
+  ok "issue refine removes [complex-issue] markers"
+fi
+assert_file_exists "$PROJ_REFINE/workspace/docs/issue-refine-report.md"
+assert_file_not_exists "$PROJ_REFINE/workspace/docs/issue-refine-plan.md"
+
+# ─────────────────────────────────────────────────────────────────────────
+# 8. tracking docs lint + blocked state recovery
+# ─────────────────────────────────────────────────────────────────────────
+note "8. tracking docs lint and blocked recovery"
+
+PROJ_STATE="$TMP_ROOT/proj-state"
+mkdir -p "$PROJ_STATE/workspace/issues" "$PROJ_STATE/workspace/docs"
+ln -s "$META_SRC" "$PROJ_STATE/.issuely"
+echo '{"workspace":"workspace","tools":""}' > "$PROJ_STATE/config.json"
+echo "# prd" > "$PROJ_STATE/workspace/docs/prd.md"
+echo "# spec" > "$PROJ_STATE/workspace/docs/spec-project.md"
+echo "# style" > "$PROJ_STATE/workspace/docs/coding-style.md"
+cat > "$PROJ_STATE/workspace/issues/000100-blocked.md" <<'ISS'
+# Issue 000100 — blocked
+
+## 目标
+blocked
+
+## 不做什么
+
+## 输入 / 依赖
+
+## 相关 issue
+
+## 输出 / 产物
+workspace/docs/test-migration-matrix.md(mod)
+
+## 集成要求
+
+## 检查方法
+true
+
+## 完成标准
+passed
+ISS
+
+set +e
+v="$(node "$META_SRC/bin/status_manager.js" validate --workspace-dir "$PROJ_STATE/workspace" --json 2>&1)"
+rc=$?
+set -e
+if [ "$rc" -ne 0 ] && echo "$v" | grep -q '"forbidden-doc-output"'; then
+  ok "validate rejects mutable ordinary docs output"
+else
+  ng "validate should reject ordinary docs output (rc=$rc, out=$v)"
+fi
+
+perl -0pi -e 's#workspace/docs/test-migration-matrix\.md\(mod\)#workspace/docs/_tracking-test-migration-matrix.md(mod)#' "$PROJ_STATE/workspace/issues/000100-blocked.md"
+v="$(node "$META_SRC/bin/status_manager.js" validate --workspace-dir "$PROJ_STATE/workspace" --json)"
+echo "$v" | grep -q '"ok": true' && ok "validate accepts _tracking docs output" || { ng "tracking docs validate failed: $v"; }
+
+node "$META_SRC/bin/status_manager.js" append begin --issue 000100 --workspace-dir "$PROJ_STATE/workspace" --json >/dev/null
+node "$META_SRC/bin/status_manager.js" append blocked --issue 000100 \
+     --message "waiting for fixture" --workspace-dir "$PROJ_STATE/workspace" --json >/dev/null
+next="$(node "$META_SRC/bin/status_manager.js" next --role dev --workspace-dir "$PROJ_STATE/workspace" --json)"
+action="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).action)" "$next")"
+assert_eq "$action" "resolve-blocked" "next dev triages blocked issue"
+
+node "$META_SRC/bin/status_manager.js" append unblocked --issue 000100 \
+     --message "fixture exists" --workspace-dir "$PROJ_STATE/workspace" --json >/dev/null
+next="$(node "$META_SRC/bin/status_manager.js" next --role dev --workspace-dir "$PROJ_STATE/workspace" --json)"
+action="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).action)" "$next")"
+assert_eq "$action" "continue-dev" "unblocked issue resumes dev"
+
+PROJ_RESOLVE="$TMP_ROOT/proj-resolve"
+mkdir -p "$PROJ_RESOLVE/workspace/issues"
+ln -s "$META_SRC" "$PROJ_RESOLVE/.issuely"
+echo '{"workspace":"workspace","tools":""}' > "$PROJ_RESOLVE/config.json"
+cat > "$PROJ_RESOLVE/workspace/issues/000100-stuck.md" <<'ISS'
+# Issue 000100 — stuck
+
+## 目标
+stuck
+
+## 不做什么
+
+## 输入 / 依赖
+
+## 相关 issue
+
+## 输出 / 产物
+workspace/src/stuck.txt(new)
+
+## 集成要求
+
+## 检查方法
+true
+
+## 完成标准
+passed
+ISS
+cat > "$PROJ_RESOLVE/workspace/issues/000200-cover.md" <<'ISS'
+# Issue 000200 — cover
+
+## 目标
+cover
+
+## 不做什么
+
+## 输入 / 依赖
+
+## 相关 issue
+
+## 输出 / 产物
+workspace/src/cover.txt(new)
+
+## 集成要求
+
+## 检查方法
+true
+
+## 完成标准
+passed
+ISS
+node "$META_SRC/bin/status_manager.js" append begin --issue 000100 --workspace-dir "$PROJ_RESOLVE/workspace" --json >/dev/null
+node "$META_SRC/bin/status_manager.js" append blocked --issue 000100 \
+     --message "superseded by cover issue" --workspace-dir "$PROJ_RESOLVE/workspace" --json >/dev/null
+node "$META_SRC/bin/status_manager.js" append begin --issue 000200 --workspace-dir "$PROJ_RESOLVE/workspace" --json >/dev/null
+node "$META_SRC/bin/status_manager.js" append done --issue 000200 \
+     --files "src/cover.txt(new)" --workspace-dir "$PROJ_RESOLVE/workspace" --json >/dev/null
+node "$META_SRC/bin/status_manager.js" append review-begin --issue 000200 --workspace-dir "$PROJ_RESOLVE/workspace" --json >/dev/null
+node "$META_SRC/bin/status_manager.js" append reviewed --issue 000200 --workspace-dir "$PROJ_RESOLVE/workspace" --json >/dev/null
+node "$META_SRC/bin/status_manager.js" append resolved-by --issue 000100 --resolved-by 000200 \
+     --message "covered by reviewed issue" --workspace-dir "$PROJ_RESOLVE/workspace" --json >/dev/null
+v="$(node "$META_SRC/bin/status_manager.js" validate --workspace-dir "$PROJ_RESOLVE/workspace" --json)"
+echo "$v" | grep -q '"ok": true' && ok "validate accepts resolved-by closure" || { ng "resolved-by validate failed: $v"; }
+next="$(node "$META_SRC/bin/status_manager.js" next --role dev --workspace-dir "$PROJ_RESOLVE/workspace" --json)"
+action="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).action)" "$next")"
+assert_eq "$action" "touch-dev-done" "resolved-by counts as closed for dev"
+
+PROJ_BLOCKED_RUN="$TMP_ROOT/proj-blocked-run"
+mkdir -p "$PROJ_BLOCKED_RUN/workspace/issues"
+ln -s "$META_SRC" "$PROJ_BLOCKED_RUN/.issuely"
+echo '{"workspace":"workspace","tools":""}' > "$PROJ_BLOCKED_RUN/config.json"
+cat > "$PROJ_BLOCKED_RUN/workspace/issues/000100-blocked-run.md" <<'ISS'
+# Issue 000100 — blocked run
+
+## 目标
+blocked run
+
+## 不做什么
+
+## 输入 / 依赖
+
+## 相关 issue
+
+## 输出 / 产物
+workspace/src/blocked-run.txt(new)
+
+## 集成要求
+
+## 检查方法
+true
+
+## 完成标准
+passed
+ISS
+node "$META_SRC/bin/status_manager.js" append begin --issue 000100 --workspace-dir "$PROJ_BLOCKED_RUN/workspace" --json >/dev/null
+node "$META_SRC/bin/status_manager.js" append blocked --issue 000100 \
+     --message "external prerequisite missing" --workspace-dir "$PROJ_BLOCKED_RUN/workspace" --json >/dev/null
+set +e
+ISSUELY_PROJECT_DIR="$PROJ_BLOCKED_RUN" \
+PATH="$FAKE_BIN:$PATH" \
+"$META_SRC/bin/run_while.sh" >"$TMP_ROOT/blocked-run.out" 2>&1
+rc=$?
+set -e
+if [ "$rc" -ne 0 ] \
+   && grep -q "全部阻塞" "$TMP_ROOT/blocked-run.out" \
+   && grep -q "000100-blocked-run.md" "$TMP_ROOT/blocked-run.out"; then
+  ok "run_while reports blocked terminal state"
+else
+  ng "run_while should report blocked terminal state (rc=$rc)"
+  cat "$TMP_ROOT/blocked-run.out"
+fi
 # ─────────────────────────────────────────────────────────────────────────
 # 总结
 # ─────────────────────────────────────────────────────────────────────────
