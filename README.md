@@ -107,7 +107,7 @@ Issuely 有两层配置：
 env overrides > ./config.json > ~/.issuely/config.json > built-in defaults
 ```
 
-默认情况下，Issuely 只注入 role、model、thinking / effort，不主动指定工具白名单、权限模式、sandbox 或 approval 策略；这些保持各 agent 自己的 CLI 默认行为。只有在 `agents` 配置里显式填写时，才会额外传递对应参数。
+默认情况下，Issuely 只注入 role、model、thinking / effort，不主动指定工具白名单、sandbox 或 approval 策略。例外：Claude 在 `--print` 非交互模式下无法弹出写入授权，Issuely 默认使用 `--permission-mode auto`，否则 dev agent 会停在“请授权写文件”。如需覆盖，可在 `agents.claude.permissionMode` 中显式设置。
 
 ### 全局配置示例
 

@@ -29,7 +29,7 @@
       "tools": ""
     },
     "claude": {
-      "permissionMode": ""
+      "permissionMode": "auto"
     },
     "codex": {
       "sandbox": "",

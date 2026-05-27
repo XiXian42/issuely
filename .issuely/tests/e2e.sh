@@ -7,7 +7,7 @@
 #   - run_while 调度 + dev/review 串行 + dev.done/review.done 立标
 #   - .issuely 符号链接 (全局共享) 也能跑通
 #   - PI_TOOLS 可配置；空时 pi 命令不带 --tools
-#   - Claude / Codex 权限类参数默认不传，显式配置时才传
+#   - Claude 非交互模式默认使用 auto 权限；Codex 权限类参数默认不传；显式配置可覆盖
 
 set -u
 
@@ -313,7 +313,7 @@ else
   echo "-----"
 fi
 
-# Claude / Codex 权限类参数默认空：不应改变 agent CLI 自己的默认行为
+# Claude 非交互模式需要 auto 权限，否则写文件请求无法弹窗审批；Codex 权限类参数仍默认空
 PROJ_AGENT_FLAGS="$TMP_ROOT/proj-agent-flags"
 mkdir -p "$PROJ_AGENT_FLAGS/workspace/issues"
 ln -s "$META_SRC" "$PROJ_AGENT_FLAGS/.issuely"
@@ -346,7 +346,7 @@ cat > "$PROJ_AGENT_FLAGS/config.json" <<'JSON'
 JSON
 
 out="$(ISSUELY_PROJECT_DIR="$PROJ_AGENT_FLAGS" node "$META_SRC/lib/config.cjs" print-shell)"
-echo "$out" | grep -q "CLAUDE_PERMISSION_MODE=''" && ok "Claude permission mode defaults empty" || ng "Claude permission mode should default empty"
+echo "$out" | grep -q "CLAUDE_PERMISSION_MODE='auto'" && ok "Claude permission mode defaults auto" || ng "Claude permission mode should default auto"
 echo "$out" | grep -q "CODEX_SANDBOX=''" && ok "Codex sandbox defaults empty" || ng "Codex sandbox should default empty"
 echo "$out" | grep -q "CODEX_APPROVAL=''" && ok "Codex approval defaults empty" || ng "Codex approval should default empty"
 
@@ -370,10 +370,10 @@ ISSUELY_PROJECT_DIR="$PROJ_AGENT_FLAGS" \
 PATH="$FAKE_CLAUDE_BIN:$PATH" \
 "$META_SRC/bin/run_dev.sh" >/dev/null 2>&1 || true
 
-if grep -q -- "--permission-mode" "$FAKE_CLAUDE_LOG"; then
-  ng "Claude default invocation should not pass --permission-mode"
+if grep -A1 -- "--permission-mode" "$FAKE_CLAUDE_LOG" | grep -q "auto"; then
+  ok "Claude default invocation passes --permission-mode auto"
 else
-  ok "Claude default invocation omits --permission-mode"
+  ng "Claude default invocation should pass --permission-mode auto"
 fi
 
 cat > "$PROJ_AGENT_FLAGS/config.json" <<'JSON'

@@ -13,7 +13,7 @@ const DEFAULTS = Object.freeze({
   agents: Object.freeze({
     pi: Object.freeze({ tools: "", trace: 1 }),
     omp: Object.freeze({ tools: "" }),
-    claude: Object.freeze({ permissionMode: "" }),
+    claude: Object.freeze({ permissionMode: "auto" }),
     codex: Object.freeze({ sandbox: "", approval: "" })
   })
 });
@@ -142,7 +142,10 @@ function normalizeAgentConfig(name, value) {
     }
     case "claude": {
       const out = {};
-      if (value.permissionMode !== undefined) out.permissionMode = value.permissionMode == null ? null : String(value.permissionMode);
+      if (value.permissionMode !== undefined) {
+        const permissionMode = value.permissionMode == null ? "" : String(value.permissionMode).trim();
+        if (permissionMode) out.permissionMode = permissionMode;
+      }
       return out;
     }
     case "codex": {

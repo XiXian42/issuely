@@ -336,7 +336,7 @@ const config = {
   agents: {
     pi: { tools: "", trace: 1 },
     omp: { tools: "" },
-    claude: { permissionMode: "" },
+    claude: { permissionMode: "auto" },
     codex: { sandbox: "", approval: "" }
   }
 };
